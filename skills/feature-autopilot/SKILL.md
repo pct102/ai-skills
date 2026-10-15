@@ -279,7 +279,8 @@ yourself, and run:
 
    `sdlc-ship` stages an explicit list: files matching `ownership.json` plus the feature's
    docs; never traces, `.oc/` logs, screenshots, generated state, `.env`, keys or
-   `node_modules`. It commits on `autopilot/<f>` when you are on a protected branch (`PROTECTED_BRANCHES` in
+   `node_modules`. `COMMIT_SDLC=no` in the project's `.sdlc/autopilot.env` keeps the whole `.sdlc/` folder (docs and
+   tests too) out of the commit and out of git's sight; it is the project's choice, so never override it. It commits on `autopilot/<f>` when you are on a protected branch (`PROTECTED_BRANCHES` in
    `.sdlc/autopilot.env` or `autopilot.env`, default `main master`), never force-pushes,
    and never pushes a protected branch. It refuses when the project folder is only a subfolder of a larger git
    repository (a branch switch there would change someone else's checkout): report that to the user and

@@ -9,6 +9,9 @@
 // Never stages generated or private files (traces, raw agent logs, screenshots, generated diagrams, evidence.json,
 // status.json, .env, keys, node_modules, test reports). Anything else that changed is listed and
 // left alone. A staged file containing a recognisable secret aborts the whole commit.
+// COMMIT_SDLC=no (set per project in .sdlc/autopilot.env) keeps the whole .sdlc/ folder out of the commit, tests and
+// docs included: it stays on disk for you to read, git never sees it (it is added to .git/info/exclude, which is
+// local to this clone), and `--ignore-sdlc` does just that exclusion. Default yes.
 // Refuses when the project folder is only a subfolder of a bigger git repository (the branch switch and
 // commit would happen there); --allow-subdir commits just this folder's files inside that repository.
 // Commits on a branch (autopilot/<f> when you are on a protected branch: main and master, or
@@ -16,8 +19,8 @@
 //
 // Exit: 0 committed or nothing to commit | 1 refused | 3 usage or configuration error
 import { spawnSync } from 'node:child_process'
-import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, appendFileSync, existsSync, statSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { setting } from './lib/setting.mjs'
 
 const a = process.argv.slice(2)
@@ -29,6 +32,24 @@ const must = (...args) => { const r = git(...args); if (r.status !== 0) die(1, `
 
 // PROTECTED_BRANCHES comes from the environment or autopilot.env (see lib/setting.mjs).
 const protectedBranches = (setting('PROTECTED_BRANCHES') || 'main master').split(/[\s,]+/).filter(Boolean)
+
+// COMMIT_SDLC: yes (default) commits the feature's docs and tests under .sdlc/; no keeps .sdlc/ local only.
+const commitSdlc = !/^(no|false|0|off)$/i.test(setting('COMMIT_SDLC'))
+// Hides .sdlc/ from git in this clone only (.git/info/exclude is never committed or pushed). Idempotent.
+const ignoreSdlcLocally = () => {
+  const r = git('rev-parse', '--git-path', 'info/exclude')
+  if (r.status !== 0) return false
+  const f = resolve(process.cwd(), r.stdout.trim())
+  let cur = ''
+  try { cur = readFileSync(f, 'utf8') } catch { /* no file yet */ }
+  const present = cur.split('\n').some((l) => ['.sdlc/', '/.sdlc/'].includes(l.trim()))
+  if (!present) appendFileSync(f, (cur && !cur.endsWith('\n') ? '\n' : '') + '# autopilot: .sdlc/ stays local (COMMIT_SDLC=no)\n.sdlc/\n')
+  return true
+}
+if (has('ignore-sdlc')) {
+  if (!commitSdlc) console.log(ignoreSdlcLocally() ? '.sdlc/ is ignored locally (COMMIT_SDLC=no)' : 'not inside a git repository: nothing ignored')
+  process.exit(0)
+}
 
 const feature = opt('feature')
 if (!feature) die(3, '--feature required')
@@ -42,7 +63,7 @@ if (sub && !has('allow-subdir')) {
     `A branch switch and commit would happen in that repository. Run 'git init' in the project folder, or pass --allow-subdir to commit only this folder's files there.`)
 }
 const prefix = sub ? git('rev-parse', '--show-prefix').stdout.trim() : ''
-const fdir = join('.sdlc', 'features', feature)
+const fdir = ['.sdlc', 'features', feature].join('/')   // git reports paths with /, also on Windows
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')) } catch { return null } }
 
 const status = readJson(join(fdir, 'status.json'))
@@ -105,7 +126,9 @@ for (let i = 0; i < entries.length; i++) {
 }
 
 const stage = [], skip = []
+if (!commitSdlc) ignoreSdlcLocally()
 for (const p of changed) {
+  if (!commitSdlc && /^\.sdlc(\/|$)/.test(p)) { skip.push([p, '.sdlc stays local (COMMIT_SDLC=no)']); continue }
   const deny = DENY.find(([re]) => re.test(p))
   if (deny) { skip.push([p, deny[1]]); continue }
   if (!(docs.has(p) || owned.some((re) => re.test(p)))) { skip.push([p, 'outside this feature\'s ownership']); continue }

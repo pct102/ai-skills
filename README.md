@@ -66,6 +66,10 @@ component that grants acceptance should not be able to fail to install.
 
 `autopilot` starts the leader with `claude -p --dangerously-skip-permissions` and the builder/QA with `opencode --auto`, so agents run shell commands and edit files without asking. Run it only on a throwaway branch or git worktree, ideally in a container or VM, and never in a directory holding credentials you care about. The local opencode server gets a random per-run password and listens on `127.0.0.1` only. opencode 2.x only enforces that password on its `/api` routes: measured on 2.0.27, the older routes (`/session`, `/project`, `/config`) answer without it. The server never leaves loopback, but any process on this machine can reach those routes, so run autopilot on a machine you trust.
 
+## Keeping `.sdlc/` out of git (optional)
+
+By default a finished feature is committed with its spec, plan, acceptance contract and e2e tests under `.sdlc/features/<f>/`. For a project where you want those local only, set `COMMIT_SDLC=no` in `<project>/.sdlc/autopilot.env`: nothing under `.sdlc/` is ever committed, and `.sdlc/` is added to `.git/info/exclude` (a per-clone ignore, not a tracked file, so the repository itself is unchanged). The files stay on disk for you to read. Files already committed earlier are not touched; remove them from history yourself.
+
 ## Issue tracker (optional)
 
 Set `ISSUE_TRACKER=github` or `jira` in `autopilot.env` and the QA agent files an issue for each product defect it finds, reusing an open one with the same title (`tools/sdlc-issue.mjs`). GitHub uses your `gh auth login`; for Jira set `JIRA_EMAIL` and `JIRA_API_TOKEN` in your shell or in that project's git-ignored `.sdlc/autopilot.env`.

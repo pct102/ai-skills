@@ -8,6 +8,8 @@
 #   After an accepted feature the leader commits it on a branch (autopilot/<feature>) via sdlc-ship.
 #   --push       also push that branch (never a protected branch, see PROTECTED_BRANCHES in autopilot.env). Default: commit locally, no push.
 #   --no-commit  leave everything uncommitted.
+#   COMMIT_SDLC=no (in the project's .sdlc/autopilot.env) never commits anything under .sdlc/ and hides it from git
+#                locally (.git/info/exclude); it stays on disk to read. Default yes.
 #   --no-diagrams  skip the extra Claude pass that draws the architecture and workflow diagrams from the code
 #                  (the trace diagram, and the status diagram while the feature is not accepted, are generated from
 #                  recorded facts and always made).
@@ -54,6 +56,8 @@ port=$(node -e 's=require("net").createServer().listen(0,()=>{console.log(s.addr
 url=http://127.0.0.1:$port
 
 mkdir -p .sdlc
+# COMMIT_SDLC=no: keep .sdlc/ out of git in this clone from the first minute (a no-op otherwise)
+node "$AI_SKILLS_HOME/tools/sdlc-ship.mjs" --ignore-sdlc || true
 # The server can run shell commands for whoever reaches it, so it gets a per-run password (inherited by oc-agent).
 export OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-$(openssl rand -hex 16)}
 export OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD   # opencode 2.x clients read this name

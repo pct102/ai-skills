@@ -129,6 +129,34 @@ R="$(new_repo r11)"; cd "$R"; rm .sdlc/features/game/ownership.json
 node "$SHIP" --feature game >/dev/null 2>&1; rc=$?
 check "missing ownership.json is a configuration error" "3" "$rc"
 
+# COMMIT_SDLC=no keeps the whole .sdlc/ folder out of git (docs and tests included), on disk for reading only
+R="$(new_repo r_sdlc)"; cd "$R"
+out="$(COMMIT_SDLC=no node "$SHIP" --feature game 2>&1)"; rc=$?
+check "COMMIT_SDLC=no: still commits the code" "0" "$rc"
+check "…only owned files outside .sdlc" "e2e/game/qa.spec.js src/game/index.js " "$(committed)"
+check "…nothing under .sdlc is in the commit" "0" "$(git show --name-only --format= HEAD | grep -c '^\.sdlc/')"
+check "…git no longer sees .sdlc at all" "0" "$(git status --porcelain --untracked-files=all | grep -c '\.sdlc')"
+check "…the ignore lives in .git/info/exclude, not in a tracked file" "1 0" "$(grep -c '^\.sdlc/$' .git/info/exclude) $(git ls-files .gitignore | wc -l | tr -d ' ')"
+check "…and the .sdlc files are still on disk" "yes" "$(test -f .sdlc/features/game/spec.md && echo yes)"
+COMMIT_SDLC=no node "$SHIP" --ignore-sdlc >/dev/null 2>&1
+check "--ignore-sdlc twice does not repeat the line" "1" "$(grep -c '^\.sdlc/$' .git/info/exclude)"
+
+# values that mean no, and the default
+for v in false off 0; do
+  R="$(new_repo "r_sdlc_$v")"; cd "$R"; COMMIT_SDLC=$v node "$SHIP" --feature game >/dev/null 2>&1
+  check "COMMIT_SDLC=$v also keeps .sdlc out" "0" "$(git show --name-only --format= HEAD | grep -c '^\.sdlc/')"
+done
+R="$(new_repo r_sdlc_default)"; cd "$R"; node "$SHIP" --ignore-sdlc >/dev/null 2>&1
+check "unset: --ignore-sdlc does nothing" "0" "$(grep -c 'sdlc' .git/info/exclude 2>/dev/null)"
+node "$SHIP" --feature game >/dev/null 2>&1
+check "unset: .sdlc docs are committed as before" "1" "$(git show --name-only --format= HEAD | grep -c '^\.sdlc/features/game/spec\.md$')"
+
+# a project whose .sdlc files were committed earlier: later changes to them are still not committed
+R="$(new_repo r_sdlc_tracked)"; cd "$R"
+git add -f .sdlc/features/game/spec.md && git commit -q -m "track spec"; echo "# changed" >> .sdlc/features/game/spec.md
+COMMIT_SDLC=no node "$SHIP" --feature game >/dev/null 2>&1
+check "COMMIT_SDLC=no: an already tracked .sdlc file is not committed again" "0" "$(git show --name-only --format= HEAD | grep -c '^\.sdlc/')"
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]
