@@ -15,7 +15,7 @@
 // ISSUE_TRACKER = github | jira | (unset = off). Settings come from the environment, .sdlc/autopilot.env or
 // <ai-skills>/autopilot.env (see autopilot.env.example). Secrets never go in those files:
 //   github  uses the `gh` CLI and its own login (`gh auth login`); optional ISSUE_GITHUB_REPO=owner/name, ISSUE_LABELS
-//   jira    JIRA_BASE_URL, JIRA_PROJECT, optional JIRA_ISSUE_TYPE (Bug); JIRA_EMAIL and JIRA_API_TOKEN from the environment
+//   jira    JIRA_BASE_URL, JIRA_PROJECT, optional JIRA_ISSUE_TYPE (Bug); JIRA_EMAIL and JIRA_API_TOKEN from the environment or <ai-skills>/autopilot.env (never a project file)
 // `create` first looks for an open issue with the same title and reuses it, so a rerun never files a duplicate.
 // The body is scrubbed of recognisable secrets before it leaves the machine.
 //
@@ -23,16 +23,18 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
-import { setting } from './lib/setting.mjs'
+import { setting, secret } from './lib/setting.mjs'
 
 const [cmd, ...a] = process.argv.slice(2)
 const opt = (k) => { const i = a.indexOf('--' + k); return i < 0 ? '' : (a[i + 1] ?? '') }
 const optAll = (k) => a.flatMap((v, i) => (v === '--' + k && a[i + 1] ? [a[i + 1]] : []))
+// Node on Windows asserts in libuv if the process exits while a fetch/upload socket is still closing.
+const quit = async () => { await new Promise((r) => setTimeout(r, 100)); process.exit(0) }
 const die = (code, msg) => { console.error(`sdlc-issue: ${msg}`); process.exit(code) }
 
 const SECRETS = /AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|xox[bp]-[A-Za-z0-9-]+|Bearer\s+[A-Za-z0-9._~+/=-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g
 const scrub = (t) => {
-  const own = [process.env.JIRA_API_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter((v) => v && v.length > 7)
+  const own = [secret('JIRA_API_TOKEN'), process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter((v) => v && v.length > 7)
   return own.reduce((s, v) => s.split(v).join('[redacted]'), t.replace(SECRETS, '[redacted]'))
 }
 
@@ -58,12 +60,12 @@ const github = {
 
 const jira = {
   need() {
-    const miss = ['JIRA_BASE_URL', 'JIRA_PROJECT'].filter((k) => !setting(k)).concat(['JIRA_EMAIL', 'JIRA_API_TOKEN'].filter((k) => !process.env[k]))
-    if (miss.length) die(1, `jira: missing ${miss.join(', ')} (JIRA_EMAIL and JIRA_API_TOKEN belong in your environment, not in a file)`)
+    const miss = ['JIRA_BASE_URL', 'JIRA_PROJECT'].filter((k) => !setting(k)).concat(['JIRA_EMAIL', 'JIRA_API_TOKEN'].filter((k) => !secret(k)))
+    if (miss.length) die(1, `jira: missing ${miss.join(', ')} (JIRA_EMAIL and JIRA_API_TOKEN go in your environment or in <ai-skills>/autopilot.env, not in a project file)`)
   },
   base: () => setting('JIRA_BASE_URL').replace(/\/+$/, ''),
   async call(method, path, body) {
-    const auth = Buffer.from(`${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`).toString('base64')
+    const auth = Buffer.from(`${secret('JIRA_EMAIL')}:${secret('JIRA_API_TOKEN')}`).toString('base64')
     const form = body instanceof FormData
     const res = await fetch(this.base() + path, {
       method, headers: { Authorization: `Basic ${auth}`, Accept: 'application/json', ...(form ? { 'X-Atlassian-Token': 'no-check' } : { 'Content-Type': 'application/json' }) },
@@ -135,8 +137,6 @@ be.need()
 
 if (READ_CMDS.includes(cmd)) {
   if (tracker !== 'jira') die(1, `${cmd} works on Jira only; ISSUE_TRACKER is "${tracker}"`)
-  // Node on Windows asserts in libuv if the process exits while a fetch/upload socket is still closing.
-  const quit = async () => { await new Promise((r) => setTimeout(r, 100)); process.exit(0) }
   const key = opt('key').toUpperCase()
   if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) die(3, '--key required, like ABC-123')
   if (cmd === 'get' || cmd === 'comments') {
@@ -169,9 +169,9 @@ const found = await be.search(title)
 if (cmd === 'search') {
   if (!found.length) console.log('no open issue with that title')
   for (const i of found) console.log(`${i.id} ${i.url}`)
-  process.exit(0)
+  await quit()
 }
-if (found.length) { console.log(`already filed: ${found[0].id} ${found[0].url}`); process.exit(0) }
+if (found.length) { console.log(`already filed: ${found[0].id} ${found[0].url}`); await quit() }
 if (!opt('body-file')) die(3, '--body-file required')
 let body = scrub(readFileSync(opt('body-file'), 'utf8')).slice(0, 30000)
 if (feature) body += `\n\n---\nFiled by autopilot QA for feature \`${feature}\`.`

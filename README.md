@@ -68,7 +68,7 @@ component that grants acceptance should not be able to fail to install.
 
 ## Issue tracker (optional)
 
-Set `ISSUE_TRACKER=github` or `jira` in `autopilot.env` and the QA agent files an issue for each product defect it finds, reusing an open one with the same title (`tools/sdlc-issue.mjs`). GitHub uses your `gh auth login`; for Jira export `JIRA_EMAIL` and `JIRA_API_TOKEN` in your shell. Tokens are never read from files in the repo.
+Set `ISSUE_TRACKER=github` or `jira` in `autopilot.env` and the QA agent files an issue for each product defect it finds, reusing an open one with the same title (`tools/sdlc-issue.mjs`). GitHub uses your `gh auth login`; for Jira set `JIRA_EMAIL` and `JIRA_API_TOKEN` in your shell or in the git-ignored `autopilot.env` next to this repo. They are never read from a project's `.sdlc/autopilot.env`.
 
 The tracker is per project: leave it unset in the shared `autopilot.env` and set it in `<project>/.sdlc/autopilot.env`. On Jira, `tools/sdlc-issue.mjs` can also `get` a ticket, list its `comments`, add a `comment` and `attach` evidence files (`--key ABC-123 --attach file`); attachments that look like credentials are refused.
 
