@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Match Pairs: what the player does",
+    "output": ".sdlc/features/example/diagrams/workflow.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "player", "label": "Player" },
+    { "id": "game", "label": "Game" }
+  ],
+  "phases": [
+    { "id": "start", "label": "Start", "fromCol": 0, "toCol": 1 },
+    { "id": "play", "label": "Pick two", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "end", "label": "Finish", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["open", "board", "first", "second", "check", "won", "again"],
+  "nodes": [
+    { "id": "open", "lane": "player", "col": 0, "type": "external", "label": "Open page", "sublabel": "VI by default", "width": 132 },
+    { "id": "board", "lane": "game", "col": 1, "type": "frontend", "label": "Show board", "sublabel": "16 tiles, 0/8", "width": 132 },
+    { "id": "first", "lane": "player", "col": 2, "type": "external", "label": "Tap a tile", "sublabel": "yellow outline", "width": 132 },
+    { "id": "second", "lane": "player", "col": 3, "type": "external", "label": "Tap another", "sublabel": "second pick", "width": 132 },
+    { "id": "check", "lane": "game", "col": 3, "type": "backend", "label": "Same animal?", "sublabel": "compare the two", "width": 132 },
+    { "id": "won", "lane": "game", "col": 4, "type": "backend", "label": "Pair gone", "sublabel": "count + 1", "width": 132 },
+    { "id": "again", "lane": "player", "col": 5, "type": "external", "label": "New game", "sublabel": "after 8/8", "width": 132 }
+  ],
+  "edges": [
+    { "id": "e-open", "from": "open", "to": "board", "label": "load", "variant": "default" },
+    { "id": "e-board", "from": "board", "to": "first", "label": "ready", "variant": "default" },
+    { "id": "e-first", "from": "first", "to": "second", "label": "pick two", "variant": "emphasis" },
+    { "id": "e-second", "from": "second", "to": "check", "label": "compare", "variant": "emphasis" },
+    { "id": "e-yes", "from": "check", "to": "won", "label": "same", "variant": "emphasis" },
+    { "id": "e-done", "from": "won", "to": "again", "label": "8/8: win", "variant": "default" },
+    { "id": "e-no", "from": "check", "to": "first", "label": "different: clear", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Main flow",
+      "items": [
+        "Pick two tiles; matching animals disappear",
+        "The counter goes up by one per pair"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "A mismatch",
+      "items": [
+        "Nothing is lost: the selection clears",
+        "Tapping the same tile twice only deselects it"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "The end",
+      "items": [
+        "At 8/8 a win message appears",
+        "New game reshuffles and resets to 0/8"
+      ]
+    }
+  ]
+}

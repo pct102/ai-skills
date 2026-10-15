@@ -1,0 +1,13 @@
+feature: demo-gate
+budget: 2
+
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh
+    expect: exit-0
+    desc: Automatic check that passes
+
+  - id: release-01
+    kind: manual
+    desc: Confirm the staging deployment responds

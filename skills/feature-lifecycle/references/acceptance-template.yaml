@@ -1,0 +1,87 @@
+# Acceptance contract for a feature.
+#
+# This file is the ONLY authority for whether a feature may be reported as
+# `accepted`. `sdlc-verify` reads it, runs every check, and writes
+# evidence.json. Prose in spec.md cannot grant or revoke acceptance.
+#
+# Copy to: .sdlc/features/<feature-name>/acceptance.yaml
+#
+# Supported subset (strict). The parser rejects anything else on purpose:
+#   - 0 / 2 / 4 space indentation, no tabs
+#   - `key: value` scalars only, no nested maps, no flow mappings
+#   - full-line `#` comments (inline `#` is NOT a comment, so commands may
+#     contain it)
+#
+# Top-level keys
+#   feature : required, kebab-case slug
+#   budget  : optional, integer repair iterations allowed (default 2)
+#   checks  : required, list of check blocks
+#
+# Check keys
+#   id     : required, unique kebab-case id
+#   kind   : required, one of test|lint|typecheck|build|security|e2e|qa-evidence|manual
+#   cmd    : required for every kind except `manual`; executed with a shell
+#            from the project root
+#   expect : optional, `exit-0` (default) or `exit-<n>`
+#   desc   : optional, one line. For `manual` this is the gate description
+#            shown to the approver.
+
+feature: example-feature
+budget: 2
+
+checks:
+  - id: unit-01
+    kind: test
+    cmd: npm test -- example
+    expect: exit-0
+    desc: Focused unit tests for the changed boundary
+
+  - id: lint-01
+    kind: lint
+    cmd: npm run lint
+    expect: exit-0
+
+  - id: typecheck-01
+    kind: typecheck
+    cmd: npm run typecheck
+    expect: exit-0
+
+  - id: build-01
+    kind: build
+    cmd: npm run build
+    expect: exit-0
+
+  - id: deps-01
+    kind: security
+    cmd: npm audit --omit=dev --audit-level=high
+    expect: exit-0
+
+  - id: security-scan-01
+    kind: security
+    cmd: node "$AI_SKILLS_HOME/tools/security-scan.mjs" . --severity high
+    expect: exit-0
+    desc: Static security scan (SQLi, RLS, secrets, XSS, auth, storage, headers)
+
+  - id: e2e-01
+    kind: e2e
+    cmd: npx playwright test tests/example.spec.ts
+    expect: exit-0
+    desc: User-visible journey for the new behavior
+
+  # `qa-evidence` is the mandatory QA gate for autopilot features. Its cmd runs the e2e suite QA wrote, and it
+  # passes only if the trace also shows a successful QA reply that came after the last builder reply. QA that
+  # was skipped, failed, or went stale because the builder changed things afterwards turns this check red.
+  - id: qa-01
+    kind: qa-evidence
+    cmd: npx playwright test e2e/example
+    expect: exit-0
+    desc: QA ran the black-box suite against the finished build
+
+  # A `manual` check is a human gate. It is never auto-passed. It passes only
+  # after an approval is recorded:
+  #   sdlc-verify.mjs --feature example-feature --approve gate-01 --by <name>
+  # Remove this block from ordinary features. See references/quality-gates.md
+  # for which actions must carry a gate.
+  - id: gate-01
+    kind: manual
+    desc: Deploy to staging and confirm the new route responds

@@ -1,0 +1,12 @@
+node_modules/
+test-results/
+*.log
+.oc/
+node_modules
+models.env
+.env
+.env.*
+!*.env.example
+.DS_Store
+.claude/settings.local.json
+.sdlc/*.log

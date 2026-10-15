@@ -1,0 +1,5 @@
+{
+  "feature": "r-failing",
+  "worktree": ".worktrees/r-failing",
+  "owns": ["src/r2/**"]
+}

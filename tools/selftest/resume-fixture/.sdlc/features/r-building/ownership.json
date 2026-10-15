@@ -1,0 +1,5 @@
+{
+  "feature": "r-building",
+  "worktree": ".worktrees/r-building",
+  "owns": ["src/r3/**"]
+}

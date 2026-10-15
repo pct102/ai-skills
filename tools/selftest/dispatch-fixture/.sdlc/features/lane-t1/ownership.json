@@ -1,0 +1,5 @@
+{
+  "feature": "lane-t1",
+  "worktree": ".worktrees/lane-t1",
+  "owns": ["tests/t1.test.js"]
+}

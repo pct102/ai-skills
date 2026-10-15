@@ -1,0 +1,223 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "How autopilot delivers a feature",
+    "output": "skills/feature-autopilot/references/autopilot.workflow.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "you",
+      "label": "You"
+    },
+    {
+      "id": "agents",
+      "label": "Agents + checks"
+    },
+    {
+      "id": "leader",
+      "label": "Leader (Claude)"
+    }
+  ],
+  "phases": [
+    {
+      "id": "align",
+      "label": "Align",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "build",
+      "label": "Build + review",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "prove",
+      "label": "Prove + ship",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "ask",
+    "spec",
+    "build",
+    "review",
+    "qa",
+    "verify",
+    "report",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "ask",
+      "lane": "you",
+      "col": 0,
+      "type": "external",
+      "label": "You",
+      "sublabel": "autopilot \"...\"",
+      "width": 132
+    },
+    {
+      "id": "spec",
+      "lane": "leader",
+      "col": 1,
+      "type": "backend",
+      "label": "Spec + contract",
+      "sublabel": "test contract + acceptance",
+      "width": 132
+    },
+    {
+      "id": "build",
+      "lane": "agents",
+      "col": 2,
+      "type": "frontend",
+      "label": "Builders",
+      "sublabel": "parallel slices",
+      "width": 132
+    },
+    {
+      "id": "review",
+      "lane": "leader",
+      "col": 3,
+      "type": "backend",
+      "label": "Review",
+      "sublabel": "diff vs spec",
+      "width": 132
+    },
+    {
+      "id": "qa",
+      "lane": "agents",
+      "col": 4,
+      "type": "messagebus",
+      "label": "QA",
+      "sublabel": "writes + runs e2e",
+      "width": 132
+    },
+    {
+      "id": "verify",
+      "lane": "agents",
+      "col": 5,
+      "type": "database",
+      "label": "sdlc-verify",
+      "sublabel": "runs the checks",
+      "width": 132
+    },
+    {
+      "id": "report",
+      "lane": "leader",
+      "col": 5,
+      "type": "backend",
+      "label": "Report + commit",
+      "sublabel": "sdlc-ship, diagrams",
+      "width": 132
+    },
+    {
+      "id": "done",
+      "lane": "you",
+      "col": 5,
+      "type": "external",
+      "label": "You",
+      "sublabel": "open hub, merge",
+      "width": 132
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-ask",
+      "from": "ask",
+      "to": "spec",
+      "label": "request",
+      "variant": "default"
+    },
+    {
+      "id": "e-spec",
+      "from": "spec",
+      "to": "build",
+      "label": "contracts",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-build",
+      "from": "build",
+      "to": "review",
+      "label": "diff",
+      "variant": "default"
+    },
+    {
+      "id": "e-review",
+      "from": "review",
+      "to": "qa",
+      "label": "scope ok",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-qa",
+      "from": "qa",
+      "to": "verify",
+      "label": "tests",
+      "variant": "default"
+    },
+    {
+      "id": "e-verify",
+      "from": "verify",
+      "to": "report",
+      "label": "all pass",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-report",
+      "from": "report",
+      "to": "done",
+      "label": "hub + branch",
+      "variant": "default"
+    },
+    {
+      "id": "e-redo",
+      "from": "review",
+      "to": "build",
+      "label": "out of scope",
+      "variant": "dashed"
+    },
+    {
+      "id": "e-fix",
+      "from": "verify",
+      "to": "build",
+      "label": "checks fail: fix",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Who decides",
+      "items": [
+        "The leader writes the contract and reviews every diff",
+        "Builders and QA are different models; QA is a required gate",
+        "Only sdlc-verify can say accepted"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Bounded loop",
+      "items": [
+        "Failed checks count against a repair budget",
+        "A spent budget escalates to you; it never retries forever",
+        "A stalled or timed-out call is split, never blindly repeated"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "What lands in git",
+      "items": [
+        "Owned code, tests and the feature docs, on autopilot/<feature>",
+        "Never traces, logs, screenshots, secrets or main",
+        "Push is opt-in: autopilot --push"
+      ]
+    }
+  ]
+}

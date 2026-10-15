@@ -1,0 +1,6 @@
+{
+  "feature": "lane-c",
+  "worktree": ".worktrees/lane-c",
+  "read_only": false,
+  "owns": ["src/a/other.ts"]
+}

@@ -1,0 +1,7 @@
+feature: r-validating
+budget: 1
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh
+    expect: exit-0

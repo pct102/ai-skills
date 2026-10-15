@@ -1,0 +1,5 @@
+{
+  "feature": "r-validating",
+  "worktree": ".worktrees/r-validating",
+  "owns": ["src/r1/**"]
+}

@@ -1,0 +1,31 @@
+{
+  "slices": [
+    {
+      "id": "core",
+      "title": "Domain logic, no UI",
+      "owns": ["src/core/**", "tests/core/**"],
+      "depends": [],
+      "brief": ".sdlc/features/<f>/.oc/prompts/10-core.md",
+      "check": "npm test -- tests/core --bail",
+      "budget_min": 15
+    },
+    {
+      "id": "ui",
+      "title": "Screens and components",
+      "owns": ["src/ui/**", "tests/ui/**"],
+      "depends": [],
+      "brief": ".sdlc/features/<f>/.oc/prompts/11-ui.md",
+      "check": "npm test -- tests/ui --bail",
+      "budget_min": 15
+    },
+    {
+      "id": "wire",
+      "title": "Entry point that joins the parts",
+      "owns": ["src/main.js", "index.html"],
+      "depends": ["core", "ui"],
+      "brief": ".sdlc/features/<f>/.oc/prompts/12-wire.md",
+      "check": "npm test --bail",
+      "budget_min": 10
+    }
+  ]
+}

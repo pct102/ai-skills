@@ -1,0 +1,5 @@
+{
+  "feature": "r-escalated",
+  "worktree": ".worktrees/r-escalated",
+  "owns": ["src/r5/**"]
+}

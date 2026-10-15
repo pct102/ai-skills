@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "File-ownership manifest for a feature lane. sdlc-dispatch reads it to decide",
+    "which lanes may run at the same time. Prose in plan.md cannot grant ownership;",
+    "this file can.",
+    "",
+    "Copy to: .sdlc/features/<feature-name>/ownership.json",
+    "",
+    "owns        required, non-empty. Repo-relative globs. Use a static directory",
+    "            prefix ('src/auth/**') rather than a bare pattern ('*.ts'), because",
+    "            a pattern with no directory prefix is treated as a catch-all and will",
+    "            conflict with every other lane.",
+    "worktree    optional. Defaults to .worktrees/<feature>.",
+    "read_only   optional, default false. A read-only lane never conflicts.",
+    "",
+    "Two lanes conflict when their static directory prefixes overlap or one contains",
+    "the other. The check is deliberately conservative: it may defer a lane that would",
+    "in fact be safe, and it will never admit two lanes that might touch the same file."
+  ],
+  "feature": "example-feature",
+  "worktree": ".worktrees/example-feature",
+  "read_only": false,
+  "owns": [
+    "src/auth/example/**",
+    "src/routes/example.ts",
+    "tests/example/**"
+  ]
+}

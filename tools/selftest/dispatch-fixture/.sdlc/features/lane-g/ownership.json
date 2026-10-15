@@ -1,0 +1,6 @@
+{
+  "feature": "lane-g",
+  "worktree": ".worktrees/lane-g",
+  "read_only": false,
+  "owns": ["src/g/**"]
+}

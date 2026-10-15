@@ -1,0 +1,5 @@
+feature: broken-bad-kind
+checks:
+  - id: unit-01
+    kind: vibes
+    cmd: bash scripts/pass.sh

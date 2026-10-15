@@ -1,0 +1,9 @@
+feature: demo-phase
+budget: 1
+
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh
+    expect: exit-0
+    desc: Used to exercise the phase machine

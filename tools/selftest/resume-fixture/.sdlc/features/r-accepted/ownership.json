@@ -1,0 +1,5 @@
+{
+  "feature": "r-accepted",
+  "worktree": ".worktrees/r-accepted",
+  "owns": ["src/r4/**"]
+}

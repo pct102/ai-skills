@@ -1,0 +1,15 @@
+feature: demo-bad
+budget: 2
+
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh
+    expect: exit-0
+    desc: Deterministic check that passes
+
+  - id: build-01
+    kind: build
+    cmd: bash scripts/fail.sh
+    expect: exit-0
+    desc: Deterministic check that fails

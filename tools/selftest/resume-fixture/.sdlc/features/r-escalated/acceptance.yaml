@@ -1,0 +1,7 @@
+feature: r-escalated
+budget: 1
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/fail.sh
+    expect: exit-0

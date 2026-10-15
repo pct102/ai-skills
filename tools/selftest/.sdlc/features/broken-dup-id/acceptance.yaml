@@ -1,0 +1,8 @@
+feature: broken-dup-id
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh
+  - id: unit-01
+    kind: lint
+    cmd: bash scripts/pass.sh

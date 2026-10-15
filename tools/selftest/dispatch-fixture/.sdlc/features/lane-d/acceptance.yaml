@@ -1,0 +1,5 @@
+feature: lane-d
+checks:
+  - id: unit-01
+    kind: test
+    cmd: bash scripts/pass.sh

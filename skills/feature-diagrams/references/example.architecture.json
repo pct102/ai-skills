@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Match Pairs: how the game is built",
+    "output": ".sdlc/features/example/diagrams/architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "player", "type": "external", "label": "Player", "sublabel": "taps and clicks", "pos": [40, 200], "size": [120, 60] },
+    { "id": "header", "type": "frontend", "label": "Header", "sublabel": "language + theme", "pos": [240, 60], "size": [140, 60] },
+    { "id": "board", "type": "frontend", "label": "Board", "sublabel": "16 tile buttons", "pos": [240, 200], "size": [140, 60] },
+    { "id": "logic", "type": "backend", "label": "Game logic", "sublabel": "select, match, win", "pos": [460, 200], "size": [140, 60] },
+    { "id": "state", "type": "database", "label": "Game state", "sublabel": "tiles, selection, pairs", "pos": [460, 340], "size": [140, 60] },
+    { "id": "strings", "type": "backend", "label": "Strings", "sublabel": "vi / en / zh text", "pos": [680, 200], "size": [140, 60] },
+    { "id": "storage", "type": "database", "label": "localStorage", "sublabel": "language, theme", "pos": [680, 60], "size": [140, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "index.html (one file, no build)", "wraps": ["header", "board", "logic", "state", "strings"] }
+  ],
+  "connections": [
+    { "id": "tap", "from": "player", "to": "board", "label": "tap tile", "variant": "emphasis" },
+    { "id": "select", "from": "board", "to": "logic", "label": "select", "variant": "emphasis" },
+    { "id": "update", "from": "logic", "to": "state", "label": "update", "variant": "default" },
+    { "id": "words", "from": "logic", "to": "strings", "label": "text", "variant": "default" },
+    { "id": "pick", "from": "player", "to": "header", "label": "language / theme", "variant": "default" },
+    { "id": "save", "from": "header", "to": "storage", "label": "remember", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One file",
+      "items": [
+        "All logic, text and styles live in index.html",
+        "No framework, no build step, no image files"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Rules in one place",
+      "items": [
+        "Game logic owns selection, matching and the win check",
+        "The board only draws what the state says"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Remembered between visits",
+      "items": [
+        "Only language and theme are stored",
+        "The board is reshuffled on every New game"
+      ]
+    }
+  ]
+}

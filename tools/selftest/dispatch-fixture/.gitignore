@@ -1,0 +1,4 @@
+# Only evidence.json is generated here. status.json is committed on purpose:
+# each lane's phase is the test's input, so ignoring it would make a fresh
+# clone see every lane as `contract` and silently pass the wrong assertions.
+evidence.json

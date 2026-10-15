@@ -1,0 +1,6 @@
+{
+  "feature": "lane-d",
+  "worktree": ".worktrees/lane-d",
+  "read_only": false,
+  "owns": ["src/a/deep/**"]
+}
