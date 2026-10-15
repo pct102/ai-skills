@@ -12,4 +12,11 @@ The builder says it is done. Run what you wrote and report; do not edit product 
 
 Each product defect: repro steps, expected, actual, screenshot path. Do not guess at the cause in code.
 
+4. File each product defect (not your own test bugs) in the issue tracker, if one is set up. Write the defect
+   (repro steps, expected, actual, screenshot path) to a file, then run:
+   `node "$AI_SKILLS_HOME/tools/sdlc-issue.mjs" create --feature <f> --title "<short defect title>" --body-file <file>`
+   It reuses an open issue with the same title, so a rerun never files a duplicate. If it says the tracker is
+   off, carry on and keep the defect in your reply. Add the printed issue id or link to the defect's `note`.
+   Never paste tokens or credentials into an issue. File nothing for a defect you could not reproduce.
+
 End with one line: `QA RESULT: PASS` if every behaviour passed, otherwise `QA RESULT: FAIL <count>`.

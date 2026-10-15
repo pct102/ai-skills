@@ -7,7 +7,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SUITES="selftest dispatch-selftest resume-selftest ship-selftest diagrams-selftest autopilot-selftest claude-stop-selftest oc-agent-selftest slices-selftest qa-gate-selftest oc-wait-selftest claude-follow-selftest"
+SUITES="selftest dispatch-selftest resume-selftest ship-selftest diagrams-selftest autopilot-selftest claude-stop-selftest oc-agent-selftest slices-selftest qa-gate-selftest oc-wait-selftest claude-follow-selftest issue-selftest"
 
 total_pass=0
 total_fail=0

@@ -231,6 +231,9 @@ hook to the contract and to the builder's next prompt.
 
 ### 3b. QA run
 
+With `ISSUE_TRACKER` set (github or jira, see `autopilot.env.example`), QA also files each product defect through
+`tools/sdlc-issue.mjs`; the ids show up in its defect list. Unset, nothing is sent. Credentials stay outside the repo.
+
 Send the qa lane `references/brief-qa-run.md` (same lane, so it keeps its session): run the fast tier, then
 the full suite including `@slow`, capture screenshots, reply with the table and `QA RESULT: PASS|FAIL`.
 This reply is what the `qa-evidence` check looks for, and it must come after the builder's last reply.

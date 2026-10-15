@@ -66,6 +66,10 @@ component that grants acceptance should not be able to fail to install.
 
 `autopilot` starts the leader with `claude -p --dangerously-skip-permissions` and the builder/QA with `opencode --auto`, so agents run shell commands and edit files without asking. Run it only on a throwaway branch or git worktree, ideally in a container or VM, and never in a directory holding credentials you care about. The local opencode server gets a random per-run password and listens on `127.0.0.1` only.
 
+## Issue tracker (optional)
+
+Set `ISSUE_TRACKER=github` or `jira` in `autopilot.env` and the QA agent files an issue for each product defect it finds, reusing an open one with the same title (`tools/sdlc-issue.mjs`). GitHub uses your `gh auth login`; for Jira export `JIRA_EMAIL` and `JIRA_API_TOKEN` in your shell. Tokens are never read from files in the repo.
+
 ## Configuration and secrets
 
 No keys live in this repo. Copy `autopilot.env.example` to `autopilot.env` (git-ignored) to choose the leader, builder and QA models. Provider logins stay outside the repo (`claude login`, `opencode auth login`); the Jev proxy reads `GEMINI_API_KEY` or `~/.config/jev-cli/gemini_key.txt` (see `tools/jev-proxy/README.md`).
@@ -91,6 +95,7 @@ tools/
   sdlc-resume.sh             ← the scheduled, unattended pass
   autopilot.sh               ← `autopilot "<request>"`: server, live viewers, Claude, trace
   link-skills.sh             ← symlink skills/* into ~/.claude/skills (Claude + opencode read it)
+  sdlc-issue.mjs             ← QA files/looks up a GitHub issue or Jira ticket per product defect (opt-in)
   sdlc-ship.mjs              ← commits one accepted feature: owned files only, never a protected branch (`PROTECTED_BRANCHES`)
   sdlc-diagrams.mjs          ← trace + status as Archify diagrams, one hub page per feature
   oc-agent.sh                ← calls an opencode builder/qa agent, keeps its session

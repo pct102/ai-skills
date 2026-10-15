@@ -17,8 +17,8 @@
 // Exit: 0 committed or nothing to commit | 1 refused | 3 usage or configuration error
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { setting } from './lib/setting.mjs'
 
 const a = process.argv.slice(2)
 const opt = (k, d = '') => { const i = a.indexOf('--' + k); return i < 0 ? d : (a[i + 1] ?? true) }
@@ -27,17 +27,7 @@ const die = (code, msg) => { console.error(msg); process.exit(code) }
 const git = (...args) => spawnSync('git', args, { encoding: 'utf8' })
 const must = (...args) => { const r = git(...args); if (r.status !== 0) die(1, `git ${args.join(' ')} failed:\n${r.stderr || r.stdout}`); return r.stdout }
 
-// PROTECTED_BRANCHES: environment, then .sdlc/autopilot.env, then <ai-skills>/autopilot.env (same lookup as models).
-const setting = (k) => {
-  if (process.env[k]) return process.env[k]
-  for (const f of ['.sdlc/autopilot.env', join(dirname(fileURLToPath(import.meta.url)), '..', 'autopilot.env')]) {
-    if (!existsSync(f)) continue
-    const m = [...readFileSync(f, 'utf8').matchAll(new RegExp(`^\\s*${k}\\s*=\\s*(.*)$`, 'gm'))].pop()
-    const v = m && m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '')
-    if (v) return v
-  }
-  return ''
-}
+// PROTECTED_BRANCHES comes from the environment or autopilot.env (see lib/setting.mjs).
 const protectedBranches = (setting('PROTECTED_BRANCHES') || 'main master').split(/[\s,]+/).filter(Boolean)
 
 const feature = opt('feature')
