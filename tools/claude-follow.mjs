@@ -21,7 +21,8 @@ import path from 'node:path'
 const a = process.argv.slice(2)
 const opt = (k, d = '') => { const i = a.indexOf('--' + k); return i < 0 ? d : (a[i + 1] ?? d) }
 const once = a.includes('--once')
-const cwd = path.resolve(opt('cwd', process.cwd()))
+// Claude names the transcript folder after the real path, so resolve symlinks (macOS: /var -> /private/var).
+const cwd = (() => { const p = path.resolve(opt('cwd', process.cwd())); try { return fs.realpathSync(p) } catch { return p } })()
 const since = Number(opt('since', '0')) * 1000
 const base = opt('base') || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 const dir = path.join(base, 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'))

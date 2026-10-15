@@ -129,7 +129,7 @@ cp "$REF/slices-template.json" .sdlc/features/f/slices.json
 check "the shipped slices template is a valid plan" "0" "$(rc plan f)"
 check "…with two waves: the parts, then the wiring" "2" "$(out plan f --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).waves.length))')"
 for f in test-contract-template.md brief-builder.md brief-qa-write.md brief-qa-run.md web-app-structure.md slices-template.json; do
-  check "the skill points at references/$f, and it exists" "1 1" "$(grep -c "${f%.*}" "$SKILL" | sed 's/^0$/0/;t;s/.*/1/') $([ -s "$REF/$f" ] && echo 1 || echo 0)"
+  check "the skill points at references/$f, and it exists" "1 1" "$(grep -c "${f%.*}" "$SKILL" | awk '{print ($1>0)}') $([ -s "$REF/$f" ] && echo 1 || echo 0)"
 done
 for w in "oc-wait.sh" "no-slice:" "sdlc-slices.mjs" "--lane" "qa-evidence" "test-contract.md" "OC_STALL" "--max-failures=1" "15 s"; do
   check "the skill mentions $w" "1" "$(grep -qF -- "$w" "$SKILL" "$REF"/*.md && echo 1 || echo 0)"
