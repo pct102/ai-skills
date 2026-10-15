@@ -3,7 +3,7 @@ test-results/
 *.log
 .oc/
 node_modules
-models.env
+autopilot.env
 .env
 .env.*
 !*.env.example

@@ -11,13 +11,14 @@
 // left alone. A staged file containing a recognisable secret aborts the whole commit.
 // Refuses when the project folder is only a subfolder of a bigger git repository (the branch switch and
 // commit would happen there); --allow-subdir commits just this folder's files inside that repository.
-// Commits on a branch (autopilot/<f> when you are on main/master); never pushes unless --push,
-// and never force-pushes or pushes main/master.
+// Commits on a branch (autopilot/<f> when you are on a protected branch: main and master, or
+// PROTECTED_BRANCHES from autopilot.env); never pushes unless --push, and never force-pushes or pushes one.
 //
 // Exit: 0 committed or nothing to commit | 1 refused | 3 usage or configuration error
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const a = process.argv.slice(2)
 const opt = (k, d = '') => { const i = a.indexOf('--' + k); return i < 0 ? d : (a[i + 1] ?? true) }
@@ -25,6 +26,19 @@ const has = (k) => a.includes('--' + k)
 const die = (code, msg) => { console.error(msg); process.exit(code) }
 const git = (...args) => spawnSync('git', args, { encoding: 'utf8' })
 const must = (...args) => { const r = git(...args); if (r.status !== 0) die(1, `git ${args.join(' ')} failed:\n${r.stderr || r.stdout}`); return r.stdout }
+
+// PROTECTED_BRANCHES: environment, then .sdlc/autopilot.env, then <ai-skills>/autopilot.env (same lookup as models).
+const setting = (k) => {
+  if (process.env[k]) return process.env[k]
+  for (const f of ['.sdlc/autopilot.env', join(dirname(fileURLToPath(import.meta.url)), '..', 'autopilot.env')]) {
+    if (!existsSync(f)) continue
+    const m = [...readFileSync(f, 'utf8').matchAll(new RegExp(`^\\s*${k}\\s*=\\s*(.*)$`, 'gm'))].pop()
+    const v = m && m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '')
+    if (v) return v
+  }
+  return ''
+}
+const protectedBranches = (setting('PROTECTED_BRANCHES') || 'main master').split(/[\s,]+/).filter(Boolean)
 
 const feature = opt('feature')
 if (!feature) die(3, '--feature required')
@@ -127,7 +141,7 @@ if (!stage.length) { console.log('nothing to commit'); process.exit(0) }
 if (dry) { console.log('dry run: nothing changed'); process.exit(0) }
 
 const current = must('rev-parse', '--abbrev-ref', 'HEAD').trim()
-const isDefault = ['main', 'master', 'HEAD'].includes(current)
+const isDefault = current === 'HEAD' || protectedBranches.includes(current)
 const branch = opt('branch') || (isDefault ? `autopilot/${feature}` : current)
 if (branch !== current) must('switch', '-c', branch)
 
@@ -145,7 +159,7 @@ must('commit', '-m', subject, '-m', body, '--', ...stage)
 console.log(`committed on ${branch}: ${must('rev-parse', '--short', 'HEAD').trim()}  ${subject}`)
 
 if (push) {
-  if (['main', 'master'].includes(branch)) die(1, 'refused to push main/master')
+  if (protectedBranches.includes(branch)) die(1, `refused to push protected branch ${branch}`)
   const r = git('push', '-u', 'origin', branch)
   process.stdout.write(r.stdout + r.stderr)
   if (r.status !== 0) die(1, 'push failed; the commit is still local')

@@ -17,7 +17,7 @@
 #       75 --wait: still running | 70 --wait: the worker died without a result
 #
 # Env: BUILDER_MODEL (default opencode/muse-spark-1.3-contributor-free), QA_MODEL (default opencode-go/deepseek-v4.1-flash),
-#      also per lane (BUILDER_MODEL_<LANE>) and from models.env
+#      also per lane (BUILDER_MODEL_<LANE>) and from autopilot.env
 #      OC_TIMEOUT    seconds per call (default 1800). On expiry the call returns rc=124 with the partial
 #                    reply and keeps the session, so the leader can send "continue".
 #      OC_STALL      seconds with no new output before the call is treated as stalled (default 600, 0 = off).
@@ -51,7 +51,7 @@ case "$role" in
   *) echo "unknown role: $role" >&2; exit 3 ;;
 esac
 # Model, first match wins: OC_MODEL, <ROLE>_MODEL_<LANE>, <ROLE>_MODEL, the default. Settings come from the
-# environment or models.env (see models.env.example).
+# environment or autopilot.env (see autopilot.env.example).
 . "$(dirname "$0")/model-setting.sh"
 upper_role=$(printf %s "$role" | tr a-z A-Z); upper_lane=$(printf %s "$lane" | tr a-z A-Z)
 model=${OC_MODEL:-}

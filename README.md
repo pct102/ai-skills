@@ -68,7 +68,7 @@ component that grants acceptance should not be able to fail to install.
 
 ## Configuration and secrets
 
-No keys live in this repo. Copy `models.env.example` to `models.env` (git-ignored) to choose the leader, builder and QA models. Provider logins stay outside the repo (`claude login`, `opencode auth login`); the Jev proxy reads `GEMINI_API_KEY` or `~/.config/jev-cli/gemini_key.txt` (see `tools/jev-proxy/README.md`).
+No keys live in this repo. Copy `autopilot.env.example` to `autopilot.env` (git-ignored) to choose the leader, builder and QA models. Provider logins stay outside the repo (`claude login`, `opencode auth login`); the Jev proxy reads `GEMINI_API_KEY` or `~/.config/jev-cli/gemini_key.txt` (see `tools/jev-proxy/README.md`).
 
 ## Repository layout
 

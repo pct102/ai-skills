@@ -86,6 +86,14 @@ node "$SHIP" --feature game --branch main --push >/dev/null 2>&1; rc=$?
 check "refuses to push main" "1" "$rc"
 check "remote still has no main" "0" "$(git ls-remote --heads origin main | wc -l | tr -d ' ')"
 
+# 5b. PROTECTED_BRANCHES: a project can protect more than main
+R="$(new_repo r7)"; cd "$R"; git switch -q -c dev
+PROTECTED_BRANCHES="main dev" node "$SHIP" --feature game >/dev/null 2>&1
+check "a protected dev branch gets a feature branch" "autopilot/game" "$(git rev-parse --abbrev-ref HEAD)"
+R="$(new_repo r7b)"; cd "$R"; git switch -q -c dev
+node "$SHIP" --feature game >/dev/null 2>&1
+check "an unlisted branch is committed on directly" "dev" "$(git rev-parse --abbrev-ref HEAD)"
+
 # 6. an over-broad ownership still cannot pull in generated or private files
 R="$(new_repo r8)"; cd "$R"
 printf '{ "feature": "game", "owns": ["**"] }\n' > .sdlc/features/game/ownership.json
