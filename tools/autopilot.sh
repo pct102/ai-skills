@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # autopilot [--push] [--no-commit] [--no-diagrams] "<feature request>"
 # autopilot --resume <feature>
-#   Runs /feature-autopilot with live viewers (macOS Terminal). If Claude stops before the feature is
+#   Runs /feature-autopilot with live viewers (macOS Terminal, Windows mintty from Git Bash, Linux terminals/tmux). If Claude stops before the feature is
 #   accepted, blocked or escalated, autopilot waits for any builder/QA call still running, then starts a fresh
 #   Claude that resumes from what is on disk (up to AUTOPILOT_RESUMES times, default 3).
 #   --resume <feature>  skip the request and resume that feature now (name as in .sdlc/features/).
@@ -20,11 +20,12 @@
 #   nothing to resume. Measured on real runs, that happens when the leader judges the request "already done"
 #   and ends its turn. Rather than only report it, autopilot tells the leader what is missing and asks it to
 #   start, up to AUTOPILOT_START_RETRIES times (default 2); set it to 0 to report on the first ended call.
-#   On macOS four Terminal windows follow the run (opencode, trace, the leader, and the local jev proxy's log
+#   Four terminal windows follow the run (opencode, trace, the leader, and the local jev proxy's log
 #   when jev is set up). When the feature ends accepted they are closed together; when it does not, they stay
 #   open so you can read what happened. AUTOPILOT_KEEP_WINDOWS=1 keeps them open anyway, AUTOPILOT_NO_CLAUDE_WINDOW=1
 #   leaves the leader window out, AUTOPILOT_NO_JEV_WINDOW=1 leaves the proxy log out and JEV_PROXY_LOG points at
-#   another log. Each close waits for Terminal to report its tab idle (up to AUTOPILOT_CLOSE_WAIT ticks of
+#   another log. AUTOPILOT_NO_WINDOWS=1 opens none and AUTOPILOT_TERMINAL=<name> forces a terminal (see viewer_kind);
+#   when none is found the three commands are printed so you can run them yourself. On macOS each close waits for Terminal to report its tab idle (up to AUTOPILOT_CLOSE_WAIT ticks of
 #   0.25 s) so it does not raise the "terminate running processes?" dialog.
 # Add to ~/.zshrc:  alias autopilot='bash ~/pct102-ai-skills/tools/autopilot.sh'
 set -euo pipefail
@@ -55,13 +56,76 @@ mkdir -p .sdlc
 # The server can run shell commands for whoever reaches it, so it gets a per-run password (inherited by oc-agent).
 export OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-$(openssl rand -hex 16)}
 opencode serve --port "$port" >.sdlc/opencode-server.log 2>&1 &
-trap 'kill $! 2>/dev/null || true' EXIT
+server_pid=$!
+trap 'kill $server_pid 2>/dev/null || true' EXIT
 sleep 3
 
-win_ids=(); win_ttys=(); win_pats=()
-# Opens a Terminal window running $1 and remembers its id, tty, and a pattern that matches its own
-# command line, so it can be stopped and closed again at the end.
-open_window() {   # <command> <pattern>
+win_ids=(); win_ttys=(); win_pats=(); win_pidfiles=()
+# Which terminal shows the live views: Terminal.app on macOS (osascript), mintty on Windows (it ships with Git for
+# Windows), and on Linux tmux (when you are inside it) or the first of gnome-terminal, konsole, xfce4-terminal,
+# x-terminal-emulator, xterm when a display is available. AUTOPILOT_NO_WINDOWS=1 opens none;
+# AUTOPILOT_TERMINAL=<name> forces one. Empty means none found, and the commands are printed for you to run by hand.
+viewer_kind() {
+  [ -n "${AUTOPILOT_NO_WINDOWS:-}" ] && return 0
+  [ -n "${AUTOPILOT_TERMINAL:-}" ] && { echo "$AUTOPILOT_TERMINAL"; return 0; }
+  case "$(uname)" in
+    Darwin) echo osascript ;;
+    MINGW*|MSYS*|CYGWIN*) if command -v mintty >/dev/null 2>&1; then echo mintty; fi ;;
+    *)
+      if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then echo tmux
+      elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        for t in gnome-terminal konsole xfce4-terminal x-terminal-emulator xterm; do
+          if command -v "$t" >/dev/null 2>&1; then echo "$t"; break; fi
+        done
+      fi ;;
+  esac
+  return 0
+}
+viewer=$(viewer_kind)
+
+# Opens a window running $1 outside macOS. The shell inside it writes its own pid to a file and then execs the
+# command, so closing the window later is just killing that pid (the window closes when its command ends).
+open_window_proc() {   # <command> <title>
+  local pidf inner
+  mkdir -p .sdlc/viewers
+  pidf="$PWD/.sdlc/viewers/$$-${#win_pidfiles[@]}.pid"; rm -f "$pidf"
+  inner="cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' && echo \$\$ > '$pidf' && exec $1"
+  case "$viewer" in
+    mintty) mintty -t "autopilot: $2" /bin/bash -c "$inner" >/dev/null 2>&1 & ;;
+    tmux) tmux new-window -d -n "$2" "bash -c $(printf %q "$inner")" >/dev/null 2>&1 || true ;;
+    gnome-terminal) gnome-terminal --title="autopilot: $2" -- bash -c "$inner" >/dev/null 2>&1 & ;;
+    konsole) konsole -p "tabtitle=autopilot: $2" -e bash -c "$inner" >/dev/null 2>&1 & ;;
+    xfce4-terminal) xfce4-terminal --title="autopilot: $2" -x bash -c "$inner" >/dev/null 2>&1 & ;;
+    *) "$viewer" -e bash -c "$inner" >/dev/null 2>&1 & ;;
+  esac
+  win_pidfiles+=("$pidf")
+  return 0
+}
+close_windows_proc() {
+  local i f pid
+  for ((i = 0; i < ${#win_pidfiles[@]}; i++)); do
+    f=${win_pidfiles[$i]}; pid=$(cat "$f" 2>/dev/null || true)
+    if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+  done
+  sleep 1
+  for ((i = 0; i < ${#win_pidfiles[@]}; i++)); do
+    f=${win_pidfiles[$i]}; pid=$(cat "$f" 2>/dev/null || true)
+    if [ -n "$pid" ]; then kill -9 "$pid" 2>/dev/null || true; fi
+    rm -f "$f"
+  done
+  return 0
+}
+
+# Opens a window running $1 and remembers how to close it again at the end.
+open_window() {   # <command> <pattern (macOS: finds the process again)> <title>
+  case "$viewer" in
+    "") return 0 ;;
+    osascript) open_window_mac "$1" "$2" ;;
+    *) open_window_proc "$1" "${3:-view}" ;;
+  esac
+}
+# macOS: a Terminal window that remembers its id, tty, and a pattern that matches its own command line.
+open_window_mac() {   # <command> <pattern>
   local out
   out=$(osascript -e 'tell application "Terminal"' -e "do script \"cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' && $1\"" -e 'set w to front window' \
           -e 'return (id of w as string) & " " & (tty of selected tab of w)' -e 'end tell' 2>/dev/null) || return 0
@@ -99,6 +163,7 @@ close_window() {   # <window id> <tty> <command pattern>
 # Closes the windows opened above. A window you already closed is skipped, and so is one whose tty now
 # belongs to something else, so nothing of yours is ever killed.
 close_windows() {
+  if [ "$viewer" != osascript ]; then close_windows_proc; return 0; fi
   local i id tty now
   for ((i = 0; i < ${#win_ids[@]}; i++)); do
     id=${win_ids[$i]}; tty=${win_ttys[$i]}
@@ -109,21 +174,27 @@ close_windows() {
   return 0
 }
 
-if [ "$(uname)" = Darwin ]; then
+if [ -n "$viewer" ] || [ -z "${AUTOPILOT_NO_WINDOWS:-}" ]; then
+  if [ -z "$viewer" ]; then
+    echo "autopilot: no terminal found to open live views in. Watch the run from other terminals in $PWD:" >&2
+    echo "  opencode attach $url      (password: \$OPENCODE_SERVER_PASSWORD)" >&2
+    echo "  node '$AI_SKILLS_HOME/tools/sdlc-trace.mjs' --feature $feat --follow" >&2
+    echo "  node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD'" >&2
+  fi
   # four live views: the agents (opencode), the message trace, the leader (what headless Claude is doing,
   # read from Claude's own transcript because `claude -p` prints nothing until it ends), and the local jev
   # proxy's log. The proxy writes both its streams to that file, and it is the service the agents' jev tool
   # talks to — without it in view a run looks like it never routes through the proxy at all. Opened only when
   # that log exists, so a project without jev still gets three windows. The second argument is the pattern
   # that finds each one again when the run ends.
-  open_window "opencode attach $url" "opencode attach $url"
-  open_window "node '$AI_SKILLS_HOME/tools/sdlc-trace.mjs' --feature $feat --follow" "sdlc-trace.mjs --feature $feat --follow"
+  open_window "opencode attach $url" "opencode attach $url" "opencode"
+  open_window "node '$AI_SKILLS_HOME/tools/sdlc-trace.mjs' --feature $feat --follow" "sdlc-trace.mjs --feature $feat --follow" "trace"
   if [ -z "${AUTOPILOT_NO_CLAUDE_WINDOW:-}" ]; then
-    open_window "node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD' --since $(date +%s)" "claude-follow.mjs --cwd $PWD"
+    open_window "node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD' --since $(date +%s)" "claude-follow.mjs --cwd $PWD" "leader"
   fi
   jev_log=${JEV_PROXY_LOG:-$HOME/.config/jev-cli/proxy.log}
   if [ -z "${AUTOPILOT_NO_JEV_WINDOW:-}" ] && [ -f "$jev_log" ]; then
-    open_window "tail -n 40 -f '$jev_log'" "tail -n 40 -f $jev_log"
+    open_window "tail -n 40 -f '$jev_log'" "tail -n 40 -f $jev_log" "jev proxy"
   fi
 fi
 
