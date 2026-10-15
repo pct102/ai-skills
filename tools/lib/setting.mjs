@@ -1,6 +1,7 @@
 // setting(NAME) -> value from the environment, then ./.sdlc/autopilot.env, then <ai-skills>/autopilot.env ('' if unset).
-// secret(NAME)  -> value from the environment, then <ai-skills>/autopilot.env only. A project file is never read for
-//                  credentials: it sits inside the repo an agent works in and could be committed by mistake.
+// secret(NAME)  -> same order. Credentials follow the project too (each project may use its own Jira site/account),
+//                  so keep them in the git-ignored <project>/.sdlc/autopilot.env, or in your environment.
+// The project file is found relative to the current directory: run the tools from the project root.
 import { existsSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,4 +20,4 @@ const fromFiles = (k, files) => {
 }
 
 export const setting = (k) => process.env[k] || fromFiles(k, ['.sdlc/autopilot.env', GLOBAL])
-export const secret = (k) => process.env[k] || fromFiles(k, [GLOBAL])
+export const secret = (k) => setting(k)

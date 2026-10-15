@@ -108,17 +108,30 @@ check "jira attach: a file holding a secret is refused" "1 0" "$(node "$IS" atta
 check "jira attach: a credential-looking name is refused" "1" "$(node "$IS" attach --key ABC-1 --attach .env >/dev/null 2>&1; echo $?)"
 check "github: get is refused (Jira only)" "1" "$(ISSUE_TRACKER=github node "$IS" get --key ABC-1 >/dev/null 2>&1; echo $?)"
 
-# credentials: from the global env file, never from a project file
+# credentials follow the project: its .sdlc/autopilot.env, then the global file (the environment wins over both)
 unset JIRA_EMAIL JIRA_API_TOKEN; mkdir -p .sdlc
 printf 'JIRA_EMAIL=me@x.io
 JIRA_API_TOKEN=tok-123456
 ' > .sdlc/autopilot.env
-out="$(node "$IS" get --key ABC-1 2>&1)"; rc=$?
-check "jira: credentials in a project file are ignored" "1 1" "$rc $(printf '%s' "$out" | grep -c 'missing JIRA_EMAIL, JIRA_API_TOKEN')"
+check "jira: credentials in the project's .sdlc/autopilot.env are used" "ABC-1 Login fails" "$(node "$IS" get --key ABC-1 2>&1 | grep -m1 'ABC-1 Login')"
 rm -f .sdlc/autopilot.env
 printf 'JIRA_EMAIL=me@x.io  # work account
 JIRA_API_TOKEN="tok-123456"
 ' > "$T/global.env"
-check "jira: credentials in the global env file are used" "ABC-1 Login fails" "$(node "$IS" get --key ABC-1 2>&1 | grep -m1 'ABC-1 Login')"
+check "jira: the global env file is the fallback" "ABC-1 Login fails" "$(node "$IS" get --key ABC-1 2>&1 | grep -m1 'ABC-1 Login')"
+printf 'JIRA_API_TOKEN=wrong-token
+' > .sdlc/autopilot.env
+out="$(node "$IS" get --key ABC-1 2>&1)"; rc=$?
+check "jira: the project's value beats the global one" "1 1" "$rc $(printf '%s' "$out" | grep -c '401')"
+rm -f .sdlc/autopilot.env "$T/global.env"
+# the tracker is chosen per project: the same global config serves a GitHub project and a Jira project
+mkdir -p proj-gh/.sdlc proj-jira/.sdlc; printf 'ISSUE_TRACKER=github
+' > proj-gh/.sdlc/autopilot.env
+printf 'ISSUE_TRACKER=jira
+JIRA_PROJECT=ABC
+' > proj-jira/.sdlc/autopilot.env
+unset ISSUE_TRACKER JIRA_PROJECT
+check "tracker: a GitHub project and a Jira project, one global config" "tracker: github|tracker: jira" "$(cd proj-gh && node "$IS" status | head -1)|$(cd proj-jira && node "$IS" status | head -1)"
+check "tracker: a project with no env file has it off" "tracker: off" "$(cd "$T" && node "$IS" status | head -1)"
 
 echo; echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]

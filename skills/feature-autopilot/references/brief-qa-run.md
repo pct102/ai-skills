@@ -12,7 +12,9 @@ The builder says it is done. Run what you wrote and report; do not edit product 
 
 Each product defect: repro steps, expected, actual, screenshot path. Do not guess at the cause in code.
 
-4. File each product defect (not your own test bugs) in the issue tracker, if one is set up. Write the defect
+4. File each product defect (not your own test bugs) in the issue tracker, if one is set up. Which tracker (GitHub or
+   Jira) is decided by this project's own `.sdlc/autopilot.env`, so run the command from the project root and never
+   pick a tracker yourself. Write the defect
    (repro steps, expected, actual, screenshot path) to a file, then run:
    `node "$AI_SKILLS_HOME/tools/sdlc-issue.mjs" create --feature <f> --title "<short defect title>" --body-file <file>`
    It reuses an open issue with the same title, so a rerun never files a duplicate. If it says the tracker is

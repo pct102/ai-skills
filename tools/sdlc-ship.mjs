@@ -79,6 +79,7 @@ for (const f of ['intent.md', 'roadmap.md', 'stack.md', 'decisions.md']) docs.ad
 
 const DENY = [
   [/(^|\/)\.env(\.(?!example$|sample$|template$).+)?$/, 'environment file'],
+  [/(^|\/)autopilot\.env$/, 'autopilot settings (may hold credentials)'],
   [/\.(pem|key|p12|pfx|keystore)$|(^|\/)id_(rsa|ed25519|ecdsa)(\.pub)?$/, 'key material'],
   [/(^|\/)node_modules\//, 'dependencies'],
   [/^\.sdlc\/.*\/(\.oc\/|evidence\/)/, 'raw agent log or screenshot (regenerable)'],

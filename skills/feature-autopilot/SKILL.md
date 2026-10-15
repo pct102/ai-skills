@@ -231,8 +231,12 @@ hook to the contract and to the builder's next prompt.
 
 ### 3b. QA run
 
-With `ISSUE_TRACKER` set (github or jira, see `autopilot.env.example`), QA also files each product defect through
-`tools/sdlc-issue.mjs`; the ids show up in its defect list. Unset, nothing is sent. Credentials stay outside the repo.
+The issue tracker is chosen PER PROJECT, never globally: read `ISSUE_TRACKER` (github or jira) and its settings from the
+project's own `.sdlc/autopilot.env` (see `autopilot.env.example`), and run `tools/sdlc-issue.mjs` from the project root.
+Do not assume GitHub or Jira from the shared `autopilot.env` or from the git host (source control and tracker are
+independent). With it set, QA files each product defect through `tools/sdlc-issue.mjs`; the ids show up in its
+defect list. Unset, nothing is sent. Credentials (`JIRA_EMAIL`, `JIRA_API_TOKEN`) live in that same git-ignored
+project file or the environment: never copy them into an issue, a log or a commit.
 
 Send the qa lane `references/brief-qa-run.md` (same lane, so it keeps its session): run the fast tier, then
 the full suite including `@slow`, capture screenshots, reply with the table and `QA RESULT: PASS|FAIL`.
