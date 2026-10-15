@@ -62,11 +62,19 @@ http.createServer((req, res) => {
       const f = JSON.parse(b).fields; issues.push(f.summary)
       require('fs').writeFileSync(process.argv[3], JSON.stringify(f)); return send(201, { key: 'ABC-' + issues.length })
     }
+    const fs = require('fs')
+    if (req.method === 'GET' && req.url.startsWith('/rest/api/2/issue/ABC-1?')) return send(200, { fields: { summary: 'Login fails', status: { name: 'Open' }, issuetype: { name: 'Bug' }, reporter: { displayName: 'Ann' }, description: 'steps here', attachment: [{ filename: 'old.png', size: 5 }], labels: [], created: 'c', updated: 'u' } })
+    if (req.method === 'GET' && req.url.startsWith('/rest/api/2/issue/ABC-1/comment')) return send(200, { comments: [{ created: 't1', author: { displayName: 'Bob' }, body: 'seen it' }] })
+    if (req.method === 'POST' && req.url === '/rest/api/2/issue/ABC-1/comment') { fs.writeFileSync(process.argv[4], b); return send(201, { id: '77' }) }
+    if (req.method === 'POST' && req.url === '/rest/api/2/issue/ABC-1/attachments') {
+      if (req.headers['x-atlassian-token'] !== 'no-check' || !/multipart\/form-data/.test(req.headers['content-type'] || '')) return send(400, {})
+      fs.appendFileSync(process.argv[5], b + '\n--END--\n'); return send(200, [{ filename: (b.match(/filename="([^"]+)"/) || [])[1] }])
+    }
     send(404, {})
   })
 }).listen(0, '127.0.0.1', function () { require('fs').writeFileSync(process.argv[2], String(this.address().port)) })
 JS
-node jira.js "$T/port" "$T/jira.fields" & SRV=$!; disown
+node jira.js "$T/port" "$T/jira.fields" "$T/jira.comment" "$T/jira.attach" & SRV=$!; disown
 for _ in $(seq 50); do [ -s "$T/port" ] && break; sleep 0.1; done
 export ISSUE_TRACKER=jira JIRA_BASE_URL="http://127.0.0.1:$(cat "$T/port")" JIRA_PROJECT=ABC
 
@@ -82,5 +90,21 @@ JIRA_API_TOKEN=wrong out="$(JIRA_API_TOKEN=wrong node "$IS" search --title "Logi
 check "jira: a rejected login fails loudly and does not print the token" "1 0" "$rc $(printf '%s' "$out" | grep -c 'wrong\|tok-123456')"
 ISSUE_TRACKER=trello out="$(ISSUE_TRACKER=trello node "$IS" create --title x --body-file body.md 2>&1)"; rc=$?
 check "an unknown tracker is a configuration error" "1" "$rc"
+
+# read, comment and attach (Jira only)
+export ISSUE_TRACKER=jira JIRA_API_TOKEN=tok-123456   # the checks above leave "wrong" / "trello" behind
+out="$(node "$IS" get --key abc-1 2>&1)"
+check "jira get: prints summary, status, attachments and description" "4" "$(printf '%s' "$out" | grep -cE 'ABC-1 Login fails|status: Open|old.png \(5 B\)|steps here')"
+check "jira get: warns that ticket text is data" "1" "$(printf '%s' "$out" | grep -c 'not instructions')"
+check "jira comments: lists author and body" "2" "$(node "$IS" comments --key ABC-1 | grep -cE 'Bob|seen it')"
+check "jira get: a bad key is a usage error" "3" "$(node "$IS" get --key nope >/dev/null 2>&1; echo $?)"
+printf 'screenshot-bytes' > shot.png; printf 'run log\nAKIAABCDEFGHIJKLMNOP\n' > leaky.log; printf 'X=1' > .env
+out="$(node "$IS" comment --key ABC-1 --body "see ghp_$(printf 'a%.0s' $(seq 36)) evidence" --attach shot.png 2>&1)"
+check "jira comment+attach: reports both" "attached to ABC-1: shot.png|commented: $JIRA_BASE_URL/browse/ABC-1?focusedCommentId=77" "$(printf '%s' "$out" | paste -sd'|')"
+check "jira comment: body is scrubbed and links the evidence" "0 1" "$(grep -c 'ghp_a' "$T/jira.comment") $(grep -c 'Evidence: \[^shot.png\]' "$T/jira.comment")"
+check "jira attach: sends the file bytes" "1" "$(grep -c 'screenshot-bytes' "$T/jira.attach")"
+check "jira attach: a file holding a secret is refused" "1 0" "$(node "$IS" attach --key ABC-1 --attach leaky.log >/dev/null 2>&1; echo $?) $(grep -c 'AKIAABCDEFGHIJKLMNOP' "$T/jira.attach")"
+check "jira attach: a credential-looking name is refused" "1" "$(node "$IS" attach --key ABC-1 --attach .env >/dev/null 2>&1; echo $?)"
+check "github: get is refused (Jira only)" "1" "$(ISSUE_TRACKER=github node "$IS" get --key ABC-1 >/dev/null 2>&1; echo $?)"
 
 echo; echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]
