@@ -386,7 +386,7 @@ hub=".sdlc/features/$feat/diagrams/index.html"
 [ -f "$hub" ] || hub=".sdlc/features/$feat/trace.html"
 echo "diagrams: $hub"
 open "$hub" 2>/dev/null || true
-if [ ${#win_ids[@]} -gt 0 ]; then
+if [ $(( ${#win_ids[@]} + ${#win_pidfiles[@]} )) -gt 0 ]; then
   if [ "$(phase_of)" != accepted ]; then
     echo "autopilot: the feature is '$(phase_of)', not accepted, so the trace windows stay open for you to read."
   elif [ -n "${AUTOPILOT_KEEP_WINDOWS:-}" ]; then

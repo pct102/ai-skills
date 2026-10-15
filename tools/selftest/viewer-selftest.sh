@@ -48,4 +48,7 @@ check "…and removes the pid files" "0" "$(ls .sdlc/viewers | wc -l | tr -d ' '
 viewer=""; open_window "sleep 60" "x" "none"
 check "no terminal found: nothing is opened" "0" "$(ls .sdlc/viewers | wc -l | tr -d ' ')"
 
+# the end-of-run block must also fire for windows opened outside macOS (it once looked at the macOS array only)
+check "the end-of-run close covers pid-file windows too" "1" "$(grep -c 'win_ids\[@\]} + \${#win_pidfiles\[@\]}' "$AP")"
+
 echo; echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]
