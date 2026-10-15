@@ -147,9 +147,15 @@ open_window() {   # <command> <pattern (macOS: finds the process again)> <title>
 # macOS: a Terminal window that remembers its id, tty, and a pattern that matches its own command line.
 open_window_mac() {   # <command> <pattern>
   local out
-  out=$(osascript -e 'tell application "Terminal"' -e "do script \"cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' OPENCODE_PASSWORD='$OPENCODE_SERVER_PASSWORD' && $1\"" -e 'set w to front window' \
-          -e 'return (id of w as string) & " " & (tty of selected tab of w)' -e 'end tell' 2>/dev/null) || return 0
-  if [ -n "$out" ]; then win_ids+=("${out%% *}"); win_ttys+=("${out#* }"); win_pats+=("$2"); fi
+  # The window and its tty are asked of the tab that `do script` returns, not of "front window", which can be a
+  # different window; Terminal may need a moment before the new tab reports them, so ask again for up to 4 s.
+  out=$(osascript -e 'on run argv' -e 'tell application "Terminal"' -e 'set t to do script (item 1 of argv)' \
+          -e 'repeat 40 times' -e 'try' -e 'set tt to tty of t' \
+          -e 'return ((id of (first window whose selected tab is t)) as string) & " " & tt' -e 'end try' \
+          -e 'delay 0.1' -e 'end repeat' -e 'return ""' -e 'end tell' -e 'end run' \
+          "cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' OPENCODE_PASSWORD='$OPENCODE_SERVER_PASSWORD' && $1" 2>/dev/null) || out=""
+  if [ -n "$out" ]; then win_ids+=("${out%% *}"); win_ttys+=("${out#* }"); win_pats+=("$2")
+  else echo "autopilot: a live-view window ($2) could not be tracked, so it will not be closed at the end; close it yourself." >&2; fi
   return 0
 }
 # The pids attached to a Terminal window's tty.
