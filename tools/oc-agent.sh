@@ -25,7 +25,8 @@
 #      OC_AUTO       1 (default) passes --auto so headless runs never block on a permission prompt;
 #                    run in a worktree/branch. 0 disables it.
 #      OC_ATTACH     URL of a running opencode server (e.g. http://localhost:4096). The sessions then
-#                    appear there, so `opencode attach <url>` in another terminal shows them live.
+#                    appear there, so `opencode attach <url>` (opencode 2.x: `opencode --server <url>`) in another
+#                    terminal shows them live. See oc-compat.sh for the 1.x / 2.x differences.
 #      OC_DIR        directory the agent works in (the worktree); defaults to the current directory
 # Output: the agent's reply on stdout, also saved to .oc/<role>-<n>.md. Exit code is opencode's.
 set -euo pipefail
@@ -59,6 +60,7 @@ model=${OC_MODEL:-}
 [ -z "$model" ] && model=$(model_setting "${upper_role}_MODEL")
 model=${model:-$default_model}
 command -v opencode >/dev/null || { echo "opencode not on PATH" >&2; exit 3; }
+. "$(dirname "$0")/oc-compat.sh"
 [ "$mode" = wait ] || [ -f "$prompt" ] || { echo "no prompt file: $prompt" >&2; exit 3; }
 
 dir=.sdlc/features/$feature/.oc${lane:+/lane-$lane}
@@ -102,8 +104,8 @@ raw=$dir/$role-$n.jsonl
 
 args=(run -m "$model" --format json --title "$feature/$actor")
 [ "${OC_AUTO:-1}" = 1 ] && args+=(--auto)
-[ -n "${OC_ATTACH:-}" ] && args+=(--attach "$OC_ATTACH")
-[ -n "${OC_DIR:-}" ] && args+=(--dir "$OC_DIR")
+[ -n "${OC_ATTACH:-}" ] && args+=("$(oc_attach_flag)" "$OC_ATTACH")
+[ -n "${OC_DIR:-}" ] && ! oc_is_v2 && args+=(--dir "$OC_DIR")   # opencode 2.x has no --dir: it runs from the directory
 [ -s "$sess_file" ] && args+=(-s "$(cat "$sess_file")")
 
 trace_log() { node "$(dirname "$0")/sdlc-trace.mjs" --feature "$feature" --log "$@" 2>/dev/null || true; }
@@ -122,7 +124,13 @@ trap on_kill TERM INT HUP
 
 # Portable timeout (stock macOS has no `timeout`): opencode in the background, a watchdog beside it.
 set +e
-opencode "${args[@]}" "$(cat "$prompt")" >"$raw" 2>"$dir/$role.err" &
+ptxt=$(cat "$prompt")
+if [ -n "${OC_DIR:-}" ] && oc_is_v2; then
+  absdir=$(cd "$dir" && pwd)
+  ( cd "$OC_DIR" && exec opencode "${args[@]}" "$ptxt" >"$absdir/$(basename "$raw")" 2>"$absdir/$role.err" ) &
+else
+  opencode "${args[@]}" "$ptxt" >"$raw" 2>"$dir/$role.err" &
+fi
 pid=$!
 rm -f "$dir/$role-$n.timedout" "$dir/$role-$n.stalled"
 # The watchdog polls once a second instead of sleeping for the whole limit: a long `sleep` left behind when the
@@ -164,7 +172,7 @@ fs.writeFileSync(out,text.join("\n")||fs.readFileSync(raw,"utf8"));
 # Ask opencode which model really answered, so the trace shows facts, not what we requested.
 used=""
 if [ -s "$sess_file" ]; then
-  opencode export "$(cat "$sess_file")" >"$dir/$role.export.json" 2>"$dir/$role.export.err" || true
+  oc_export "$(cat "$sess_file")" >"$dir/$role.export.json" 2>"$dir/$role.export.err" || true
   used=$(node "$(dirname "$0")/oc-model.mjs" <"$dir/$role.export.json" 2>>"$dir/$role.export.err" || true)
 fi
 case ",$used," in

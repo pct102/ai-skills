@@ -64,7 +64,7 @@ component that grants acceptance should not be able to fail to install.
 
 ## Safety: autopilot runs unattended
 
-`autopilot` starts the leader with `claude -p --dangerously-skip-permissions` and the builder/QA with `opencode --auto`, so agents run shell commands and edit files without asking. Run it only on a throwaway branch or git worktree, ideally in a container or VM, and never in a directory holding credentials you care about. The local opencode server gets a random per-run password and listens on `127.0.0.1` only.
+`autopilot` starts the leader with `claude -p --dangerously-skip-permissions` and the builder/QA with `opencode --auto`, so agents run shell commands and edit files without asking. Run it only on a throwaway branch or git worktree, ideally in a container or VM, and never in a directory holding credentials you care about. The local opencode server gets a random per-run password and listens on `127.0.0.1` only. opencode 2.x only enforces that password on its `/api` routes: measured on 2.0.27, the older routes (`/session`, `/project`, `/config`) answer without it. The server never leaves loopback, but any process on this machine can reach those routes, so run autopilot on a machine you trust.
 
 ## Issue tracker (optional)
 

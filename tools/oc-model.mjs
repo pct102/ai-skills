@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// oc-model.mjs — print the provider/model pairs found in `opencode export <session>` (stdin).
+// oc-model.mjs — print the provider/model pairs found in `opencode export <session>` (opencode 2.x: `opencode session export`) (stdin).
 //   opencode export <session-id> | node tools/oc-model.mjs
 // Exit 0 with a comma-separated list; exit 1 with the reason on stderr when nothing is found.
 // `opencode export` is cut at 64 KiB when its stdout is a pipe, so prefer a file:

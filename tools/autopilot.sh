@@ -30,6 +30,7 @@
 # Add to ~/.zshrc:  alias autopilot='bash ~/pct102-ai-skills/tools/autopilot.sh'
 set -euo pipefail
 export AI_SKILLS_HOME=${AI_SKILLS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}
+. "$AI_SKILLS_HOME/tools/oc-compat.sh"
 resume=""
 while :; do
   case "${1:-}" in
@@ -55,6 +56,7 @@ url=http://127.0.0.1:$port
 mkdir -p .sdlc
 # The server can run shell commands for whoever reaches it, so it gets a per-run password (inherited by oc-agent).
 export OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-$(openssl rand -hex 16)}
+export OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD   # opencode 2.x clients read this name
 opencode serve --port "$port" >.sdlc/opencode-server.log 2>&1 &
 server_pid=$!
 trap 'kill $server_pid 2>/dev/null || true' EXIT
@@ -89,7 +91,7 @@ open_window_proc() {   # <command> <title>
   local pidf inner
   mkdir -p .sdlc/viewers
   pidf="$PWD/.sdlc/viewers/$$-${#win_pidfiles[@]}.pid"; rm -f "$pidf"
-  inner="cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' && echo \$\$ > '$pidf' && exec $1"
+  inner="cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' OPENCODE_PASSWORD='$OPENCODE_SERVER_PASSWORD' && echo \$\$ > '$pidf' && exec $1"
   case "$viewer" in
     mintty) mintty -t "autopilot: $2" /bin/bash -c "$inner" >/dev/null 2>&1 & ;;
     tmux) tmux new-window -d -n "$2" "bash -c $(printf %q "$inner")" >/dev/null 2>&1 || true ;;
@@ -127,7 +129,7 @@ open_window() {   # <command> <pattern (macOS: finds the process again)> <title>
 # macOS: a Terminal window that remembers its id, tty, and a pattern that matches its own command line.
 open_window_mac() {   # <command> <pattern>
   local out
-  out=$(osascript -e 'tell application "Terminal"' -e "do script \"cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' && $1\"" -e 'set w to front window' \
+  out=$(osascript -e 'tell application "Terminal"' -e "do script \"cd '$PWD' && export OPENCODE_SERVER_PASSWORD='$OPENCODE_SERVER_PASSWORD' OPENCODE_PASSWORD='$OPENCODE_SERVER_PASSWORD' && $1\"" -e 'set w to front window' \
           -e 'return (id of w as string) & " " & (tty of selected tab of w)' -e 'end tell' 2>/dev/null) || return 0
   if [ -n "$out" ]; then win_ids+=("${out%% *}"); win_ttys+=("${out#* }"); win_pats+=("$2"); fi
   return 0
@@ -177,7 +179,7 @@ close_windows() {
 if [ -n "$viewer" ] || [ -z "${AUTOPILOT_NO_WINDOWS:-}" ]; then
   if [ -z "$viewer" ]; then
     echo "autopilot: no terminal found to open live views in. Watch the run from other terminals in $PWD:" >&2
-    echo "  opencode attach $url      (password: \$OPENCODE_SERVER_PASSWORD)" >&2
+    echo "  $(oc_view_cmd "$url")      (password: \$OPENCODE_SERVER_PASSWORD)" >&2
     echo "  node '$AI_SKILLS_HOME/tools/sdlc-trace.mjs' --feature $feat --follow" >&2
     echo "  node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD'" >&2
   fi
@@ -187,7 +189,8 @@ if [ -n "$viewer" ] || [ -z "${AUTOPILOT_NO_WINDOWS:-}" ]; then
   # talks to — without it in view a run looks like it never routes through the proxy at all. Opened only when
   # that log exists, so a project without jev still gets three windows. The second argument is the pattern
   # that finds each one again when the run ends.
-  open_window "opencode attach $url" "opencode attach $url" "opencode"
+  view_cmd=$(oc_view_cmd "$url")
+  open_window "$view_cmd" "$view_cmd" "opencode"
   open_window "node '$AI_SKILLS_HOME/tools/sdlc-trace.mjs' --feature $feat --follow" "sdlc-trace.mjs --feature $feat --follow" "trace"
   if [ -z "${AUTOPILOT_NO_CLAUDE_WINDOW:-}" ]; then
     open_window "node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD' --since $(date +%s)" "claude-follow.mjs --cwd $PWD" "leader"
