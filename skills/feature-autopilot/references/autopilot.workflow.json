@@ -215,7 +215,7 @@
       "title": "What lands in git",
       "items": [
         "Owned code, tests and the feature docs, on autopilot/<feature>",
-        "Never traces, logs, screenshots, secrets or main",
+        "Never traces, logs, screenshots, secrets or a protected branch (main, master, or PROTECTED_BRANCHES)",
         "Push is opt-in: autopilot --push"
       ]
     }

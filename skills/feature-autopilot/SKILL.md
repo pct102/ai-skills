@@ -55,7 +55,7 @@ Two things that look like reasons to skip and are not:
   verify the code that exists — otherwise it is never verified and no evidence is ever produced.
 - **"The request told me to work on a branch."** Instructions in the request about git (branch name,
   do not push, do not touch main) are carried out by `sdlc-ship` at step 5, which commits on
-  `autopilot/<f>` and never pushes main. They are not an instruction to run `git` yourself.
+  `autopilot/<f>` and never pushes a protected branch (`PROTECTED_BRANCHES`, default `main master`). They are not an instruction to run `git` yourself.
 
 If you get a call that starts with `CORRECTION:`, your previous call ended without `status.json` and
 autopilot is giving you another chance to start. Do not re-explain why you stopped — write the feature
@@ -272,8 +272,9 @@ yourself, and run:
 
    `sdlc-ship` stages an explicit list: files matching `ownership.json` plus the feature's
    docs; never traces, `.oc/` logs, screenshots, generated state, `.env`, keys or
-   `node_modules`. It commits on `autopilot/<f>` when you are on main, never force-pushes,
-   and never pushes main. It refuses when the project folder is only a subfolder of a larger git
+   `node_modules`. It commits on `autopilot/<f>` when you are on a protected branch (`PROTECTED_BRANCHES` in
+   `.sdlc/autopilot.env` or `autopilot.env`, default `main master`), never force-pushes,
+   and never pushes a protected branch. It refuses when the project folder is only a subfolder of a larger git
    repository (a branch switch there would change someone else's checkout): report that to the user and
    do not pass `--allow-subdir` on your own. Do not run `git add -A`, `git commit -a` or `git push` yourself.
 4. Read its `-` lines. A file the feature should own but is listed as "outside ownership"

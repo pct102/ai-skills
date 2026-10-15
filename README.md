@@ -91,7 +91,7 @@ tools/
   sdlc-resume.sh             ← the scheduled, unattended pass
   autopilot.sh               ← `autopilot "<request>"`: server, live viewers, Claude, trace
   link-skills.sh             ← symlink skills/* into ~/.claude/skills (Claude + opencode read it)
-  sdlc-ship.mjs              ← commits one accepted feature: owned files only, never main
+  sdlc-ship.mjs              ← commits one accepted feature: owned files only, never a protected branch (`PROTECTED_BRANCHES`)
   sdlc-diagrams.mjs          ← trace + status as Archify diagrams, one hub page per feature
   oc-agent.sh                ← calls an opencode builder/qa agent, keeps its session
   selftest/                  ← run-all.sh is the gate for the three tools above

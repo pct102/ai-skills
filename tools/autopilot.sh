@@ -6,7 +6,7 @@
 #   Claude that resumes from what is on disk (up to AUTOPILOT_RESUMES times, default 3).
 #   --resume <feature>  skip the request and resume that feature now (name as in .sdlc/features/).
 #   After an accepted feature the leader commits it on a branch (autopilot/<feature>) via sdlc-ship.
-#   --push       also push that branch (never main). Default: commit locally, no push.
+#   --push       also push that branch (never a protected branch, see PROTECTED_BRANCHES in autopilot.env). Default: commit locally, no push.
 #   --no-commit  leave everything uncommitted.
 #   --no-diagrams  skip the extra Claude pass that draws the architecture and workflow diagrams from the code
 #                  (the trace diagram, and the status diagram while the feature is not accepted, are generated from
