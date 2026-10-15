@@ -101,7 +101,7 @@ check "jira comments: lists author and body" "2" "$(node "$IS" comments --key AB
 check "jira get: a bad key is a usage error" "3" "$(node "$IS" get --key nope >/dev/null 2>&1; echo $?)"
 printf 'screenshot-bytes' > shot.png; printf 'run log\nAKIAABCDEFGHIJKLMNOP\n' > leaky.log; printf 'X=1' > .env
 out="$(node "$IS" comment --key ABC-1 --body "see ghp_$(printf 'a%.0s' $(seq 36)) evidence" --attach shot.png 2>&1)"
-check "jira comment+attach: reports both" "attached to ABC-1: shot.png|commented: $JIRA_BASE_URL/browse/ABC-1?focusedCommentId=77" "$(printf '%s' "$out" | paste -sd'|')"
+check "jira comment+attach: reports both" "attached to ABC-1: shot.png|commented: $JIRA_BASE_URL/browse/ABC-1?focusedCommentId=77" "$(printf '%s' "$out" | paste -sd'|' -)"
 check "jira comment: body is scrubbed and links the evidence" "0 1" "$(grep -c 'ghp_a' "$T/jira.comment") $(grep -c 'Evidence: \[^shot.png\]' "$T/jira.comment")"
 check "jira attach: sends the file bytes" "1" "$(grep -c 'screenshot-bytes' "$T/jira.attach")"
 check "jira attach: a file holding a secret is refused" "1 0" "$(node "$IS" attach --key ABC-1 --attach leaky.log >/dev/null 2>&1; echo $?) $(grep -c 'AKIAABCDEFGHIJKLMNOP' "$T/jira.attach")"

@@ -56,10 +56,10 @@ eval "$(sed -n '/^open_file() {/,/^}/p' "$AP")"
 mkdir -p "$T/ob"; : > "$T/ob/calls"
 for tool in open xdg-open; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s/ob/calls"\n' "$tool" "$T" > "$T/ob/$tool"; done
 chmod +x "$T"/ob/*
-opened() { : > "$T/ob/calls"; ( PATH="$T/ob:$PATH"; "$@" ); sleep 0.3; cat "$T/ob/calls" | tr '\n' '|'; }
-printf '#!/usr/bin/env bash\n[ $# -eq 0 ] && echo Darwin || exec /usr/bin/uname "$@"\n' > "$T/ob/uname"
+opened() { : > "$T/ob/calls"; ( PATH="$T/ob:$PATH"; "$@" ); sleep 1; cat "$T/ob/calls" | tr '\n' '|'; }
+printf '#!/usr/bin/env bash\n[ $# -eq 0 ] && echo Darwin || exec /usr/bin/uname "$@"\n' > "$T/ob/uname"; chmod +x "$T/ob/uname"
 check "macOS: opens the hub with open" "open hub.html|" "$(opened open_file hub.html)"
-printf '#!/usr/bin/env bash\n[ $# -eq 0 ] && echo Linux || exec /usr/bin/uname "$@"\n' > "$T/ob/uname"
+printf '#!/usr/bin/env bash\n[ $# -eq 0 ] && echo Linux || exec /usr/bin/uname "$@"\n' > "$T/ob/uname"; chmod +x "$T/ob/uname"
 check "Linux with a display: opens it with xdg-open" "xdg-open hub.html|" "$(DISPLAY=:0 opened open_file hub.html)"
 check "Linux without a display: opens nothing" "" "$(unset DISPLAY WAYLAND_DISPLAY; opened open_file hub.html)"
 check "AUTOPILOT_NO_OPEN=1 opens nothing" "" "$(AUTOPILOT_NO_OPEN=1 opened open_file hub.html)"
