@@ -5,6 +5,8 @@ PID_FILE="$HOME/.config/jev-cli/proxy.pid"
 LOG_FILE="$HOME/.config/jev-cli/proxy.log"
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/jev_proxy.py"
 KEY_FILE="$HOME/.config/jev-cli/gemini_key.txt"
+# python3 on Windows is often a Store stub that runs nothing; use the first interpreter that works.
+PY=python3; "$PY" -c "" 2>/dev/null || PY=python
 
 case "$1" in
   start)
@@ -13,7 +15,7 @@ case "$1" in
       exit 0
     fi
     mkdir -p "$HOME/.config/jev-cli"
-    nohup python3 "$SCRIPT" > "$LOG_FILE" 2>&1 &
+    nohup "$PY" "$SCRIPT" > "$LOG_FILE" 2>&1 &
     PID=$!
     echo "$PID" > "$PID_FILE"
     sleep 0.5

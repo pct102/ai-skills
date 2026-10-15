@@ -1,0 +1,2 @@
+*.sh text eol=lf
+tools/jev-proxy/jev-proxy text eol=lf
