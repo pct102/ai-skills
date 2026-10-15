@@ -8,6 +8,8 @@
 #   After an accepted feature the leader commits it on a branch (autopilot/<feature>) via sdlc-ship.
 #   --push       also push that branch (never a protected branch, see PROTECTED_BRANCHES in autopilot.env). Default: commit locally, no push.
 #   --no-commit  leave everything uncommitted.
+#   When the feature ends, the diagrams hub (.sdlc/features/<f>/diagrams/index.html) is opened in your browser: `open` on
+#   macOS, `start` on Windows, `xdg-open` on Linux. AUTOPILOT_NO_OPEN=1 skips that.
 #   COMMIT_SDLC=no (in the project's .sdlc/autopilot.env) never commits anything under .sdlc/ and hides it from git
 #                locally (.git/info/exclude); it stays on disk to read. Default yes.
 #   --no-diagrams  skip the extra Claude pass that draws the architecture and workflow diagrams from the code
@@ -119,6 +121,18 @@ close_windows_proc() {
     if [ -n "$pid" ]; then kill -9 "$pid" 2>/dev/null || true; fi
     rm -f "$f"
   done
+  return 0
+}
+
+# Shows a file in the default app: `open` on macOS, `start` on Windows (Git Bash), `xdg-open` on Linux when a
+# display exists. AUTOPILOT_NO_OPEN=1 skips it. Never fails the run.
+open_file() {   # <file>
+  [ -n "${AUTOPILOT_NO_OPEN:-}" ] && return 0
+  case "$(uname)" in
+    Darwin) open "$1" >/dev/null 2>&1 || true ;;
+    MINGW*|MSYS*|CYGWIN*) cmd //c start "" "$(cygpath -w "$1")" >/dev/null 2>&1 || true ;;
+    *) if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 & fi ;;
+  esac
   return 0
 }
 
@@ -389,7 +403,7 @@ node "$AI_SKILLS_HOME/tools/sdlc-diagrams.mjs" --feature "$feat" || true
 hub=".sdlc/features/$feat/diagrams/index.html"
 [ -f "$hub" ] || hub=".sdlc/features/$feat/trace.html"
 echo "diagrams: $hub"
-open "$hub" 2>/dev/null || true
+open_file "$hub"
 if [ $(( ${#win_ids[@]} + ${#win_pidfiles[@]} )) -gt 0 ]; then
   if [ "$(phase_of)" != accepted ]; then
     echo "autopilot: the feature is '$(phase_of)', not accepted, so the trace windows stay open for you to read."
