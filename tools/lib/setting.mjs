@@ -7,8 +7,8 @@ export const setting = (k) => {
   if (process.env[k]) return process.env[k]
   for (const f of ['.sdlc/autopilot.env', join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'autopilot.env')]) {
     if (!existsSync(f)) continue
-    const m = [...readFileSync(f, 'utf8').matchAll(new RegExp(`^\\s*${k}\\s*=\\s*(.*)$`, 'gm'))].pop()
-    const v = m && m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '')
+    const m = [...readFileSync(f, 'utf8').matchAll(new RegExp(`^[ \\t]*${k}[ \\t]*=[ \\t]*(.*)$`, 'gm'))].pop()
+    const v = m && m[1].replace(/(^|\s)#.*$/, '').trim().replace(/^["']|["']$/g, '')
     if (v) return v
   }
   return ''
