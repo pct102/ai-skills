@@ -149,10 +149,10 @@ open_window_mac() {   # <command> <pattern>
   local out
   # The window and its tty are asked of the tab that `do script` returns, not of "front window", which can be a
   # different window; Terminal may need a moment before the new tab reports them, so ask again for up to 4 s.
-  # When Terminal was not running, it opens an empty window of its own at launch; the first view takes that window
+  # When Terminal was not running, or running with every window closed, it opens an empty window of its own; the first view takes that window
   # over instead of leaving it behind as a fifth, empty one.
   out=$(osascript -e 'on run argv' -e 'set wasRunning to application "Terminal" is running' -e 'tell application "Terminal"' \
-          -e 'if wasRunning then' -e 'set t to do script (item 1 of argv)' -e 'else' \
+          -e 'if wasRunning and (count of windows) > 0 then' -e 'set t to do script (item 1 of argv)' -e 'else' \
           -e 'repeat 30 times' -e 'if (count of windows) > 0 then exit repeat' -e 'delay 0.1' -e 'end repeat' \
           -e 'if (count of windows) > 0 then' -e 'set t to do script (item 1 of argv) in window 1' \
           -e 'else' -e 'set t to do script (item 1 of argv)' -e 'end if' -e 'end if' \
