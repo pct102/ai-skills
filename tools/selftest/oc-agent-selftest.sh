@@ -121,6 +121,41 @@ check "a lane numbers its own calls" "2 1" "$(ls .sdlc/features/lanes/.oc/lane-a
 bash "$OC" --lane "Bad Lane" builder lanes "$T/p/prompt.md" >/dev/null 2>&1; rc=$?
 check "a bad lane name is refused (3)" "3" "$rc"
 
+# ---- model chain: lanes spread over the chain, and a 429 moves on to the next model --------------------------
+mkdir -p "$T/bin2"
+cat > "$T/bin2/opencode" <<'FAKE'
+#!/bin/sh
+[ "$1" = export ] && exit 1
+m=""; while [ $# -gt 0 ]; do [ "$1" = -m ] && m=$2; shift; done
+echo "$m" >> "$MODELLOG"
+if [ "$m" = "$BAD_MODEL" ] && [ -n "${BAD_EXIT0:-}" ]; then   # what opencode really does: retries, then exits 0 with only an error event
+  echo '{"type":"error","sessionID":"s","error":{"name":"APIError","data":{"message":"Upstream request failed: Rate limit exceeded.","statusCode":429}}}'; exit 0; fi
+if [ "$m" = "$BAD_MODEL" ]; then echo "429 Too Many Requests" >&2; exit 1; fi
+echo '{"type":"text","sessionID":"s","part":{"type":"text","text":"ok"}}'
+sleep "${FAKE_SLEEP:-0}"
+FAKE
+chmod +x "$T/bin2/opencode"
+export MODELLOG="$T/models.log" OC_LEASE_DIR="$T/leases" BUILDER_MODEL="m1,m2,m3"
+rm -f "$MODELLOG"
+FAKE_SLEEP=4 PATH="$T/bin2:$PATH" bash "$OC" --async --lane a builder chain "$T/p/prompt.md" >/dev/null 2>&1
+FAKE_SLEEP=4 PATH="$T/bin2:$PATH" bash "$OC" --async --lane b builder chain "$T/p/prompt.md" >/dev/null 2>&1
+FAKE_SLEEP=4 PATH="$T/bin2:$PATH" bash "$OC" --async --lane c builder chain "$T/p/prompt.md" >/dev/null 2>&1
+for l in a b c; do PATH="$T/bin2:$PATH" bash "$OC" --lane $l --wait builder chain 60 >/dev/null 2>&1; done
+check "three parallel lanes use three different models, not all the first" "m1 m2 m3" "$(sort "$MODELLOG" | xargs)"
+check "…and no lease is left behind" "0" "$(ls "$T/leases" | wc -l | tr -d ' ')"
+rm -f "$MODELLOG"; export BAD_MODEL=m1 BUILDER_MODEL="m1,m2"
+PATH="$T/bin2:$PATH" bash "$OC" builder chain429 "$T/p/prompt.md" >/dev/null 2>&1; rc=$?
+check "a 429 on the first model falls through to the next, which answers" "0 m1 m2" "$rc $(xargs < "$MODELLOG")"
+rm -f "$MODELLOG"
+PATH="$T/bin2:$PATH" bash "$OC" builder chain429 "$T/p/prompt.md" >/dev/null 2>&1
+check "…and that model rests: the next call goes straight to m2" "m2" "$(xargs < "$MODELLOG")"
+rm -f "$MODELLOG" .sdlc/features/chainexit0/.oc/exhausted-models; export BAD_EXIT0=1
+PATH="$T/bin2:$PATH" bash "$OC" builder chainexit0 "$T/p/prompt.md" > "$T/exit0.out" 2>/dev/null; rc=$?
+check "a 429 that opencode reports with exit 0 and no reply text still falls through to the next model" "0 m1 m2 ok" "$rc $(xargs < "$MODELLOG") $(cat "$T/exit0.out")"
+echo "m1 $(date +%s) 0.15" >> .sdlc/features/chainexit0/.oc/exhausted-models
+check "a repeated 429 doubles the rest (0.15 h -> 0.3 h)" "0.3" "$(awk -v m=m1 -v now="$(date +%s)" -v base=0.15 -v cap=6 '$1==m && now-$2 < 7200 {n++} END{h=base*(2^n); print (h>cap?cap:h)}' .sdlc/features/chainexit0/.oc/exhausted-models | head -1)"
+unset BAD_MODEL BUILDER_MODEL BAD_EXIT0
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

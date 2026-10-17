@@ -88,7 +88,10 @@ for `.sdlc/features/<name>/` instead of inventing one.
 ## Preconditions
 
 - `opencode` on PATH; `opencode models` lists the builder and QA models. Override with
-  `BUILDER_MODEL` / `QA_MODEL` (defaults in `tools/oc-agent.sh`).
+  `BUILDER_MODEL` / `QA_MODEL` (defaults in `tools/oc-agent.sh`). The models are the owner's choice, never yours:
+  do not set `OC_MODEL`, `BUILDER_MODEL*` or `QA_MODEL*` on a call, and do not edit `autopilot.env`. A `BUILDER_MODEL` comma
+  list is a fallback chain that `oc-agent.sh` walks itself when a model hits its usage limit (exit 76 = every model
+  is exhausted: report it and stop, do not pick a paid model).
 - Playwright installed in the project (`npx playwright --version`). If not, the first QA round installs it.
 - Run Claude headless with permissions skipped, in a clean branch or worktree:
   `claude -p "/feature-autopilot <feature request>" --dangerously-skip-permissions`

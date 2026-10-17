@@ -63,6 +63,11 @@ node "$AI_SKILLS_HOME/tools/sdlc-ship.mjs" --ignore-sdlc || true
 # The server can run shell commands for whoever reaches it, so it gets a per-run password (inherited by oc-agent).
 export OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-$(openssl rand -hex 16)}
 export OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD   # opencode 2.x clients read this name
+# Builder and QA run unattended, so nothing may wait for a human to click "Allow". `opencode run --auto` only answers
+# the requests its own client sees; a session on this server (the live view) still asks for things like
+# "Access external directory /tmp". The server's own permission rule settles it for every client. OC_AUTO=0 turns it off.
+. "$AI_SKILLS_HOME/tools/model-setting.sh"
+oc_auto=$(model_setting OC_AUTO); [ "${oc_auto:-1}" = 1 ] && export OPENCODE_PERMISSION=${OPENCODE_PERMISSION:-'{"*":"allow","external_directory":"allow","doom_loop":"allow"}'}
 opencode serve --port "$port" >.sdlc/opencode-server.log 2>&1 &
 server_pid=$!
 trap 'kill $server_pid 2>/dev/null || true' EXIT
