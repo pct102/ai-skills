@@ -16,6 +16,9 @@
 // commit would happen there); --allow-subdir commits just this folder's files inside that repository.
 // Commits on a branch (autopilot/<f> when you are on a protected branch: main and master, or
 // PROTECTED_BRANCHES from autopilot.env); never pushes unless --push, and never force-pushes or pushes one.
+// The branch the autopilot run started on (recorded by autopilot.sh in .sdlc/features/<f>/run-branch) is
+// enforced: a branch switched to mid-run is refused, because the feature's branch name is not the leader's
+// to choose — pass --branch to commit somewhere else on purpose.
 //
 // Exit: 0 committed or nothing to commit | 1 refused | 3 usage or configuration error
 import { spawnSync } from 'node:child_process'
@@ -104,7 +107,7 @@ const DENY = [
   [/\.(pem|key|p12|pfx|keystore)$|(^|\/)id_(rsa|ed25519|ecdsa)(\.pub)?$/, 'key material'],
   [/(^|\/)node_modules\//, 'dependencies'],
   [/^\.sdlc\/.*\/(\.oc\/|evidence\/)/, 'raw agent log or screenshot (regenerable)'],
-  [/^\.sdlc\/.*\/(trace\.(jsonl|md|html)|evidence\.json|status\.json)$/, 'generated state'],
+  [/^\.sdlc\/.*\/(trace\.(jsonl|md|html)|evidence\.json|status\.json|run-branch)$/, 'generated state'],
   [/^\.sdlc\/.*\/diagrams\/(?!(architecture|workflow|dataflow)\.json$)/, 'generated diagram (regenerable)'],
   [/^\.sdlc\/opencode-server\.log$/, 'server log'],
   [/(^|\/)(test-results|playwright-report|\.playwright)\//, 'test report'],
@@ -156,6 +159,19 @@ if (dry) { console.log('dry run: nothing changed'); process.exit(0) }
 
 const current = must('rev-parse', '--abbrev-ref', 'HEAD').trim()
 const isDefault = current === 'HEAD' || protectedBranches.includes(current)
+// The branch this autopilot run started on, recorded by autopilot.sh on a fresh start (a resume
+// keeps the original baseline). The leader used to switch to a branch it invented (claude/<name>)
+// mid-run, and ship then committed there, because it commits on whatever is checked out — so the
+// feature landed under a name that matches nothing in .sdlc. Refuse the mismatch; --branch states
+// the destination explicitly and overrides the check.
+const startBranch = (() => { try { return readFileSync(join(fdir, 'run-branch'), 'utf8').trim() } catch { return '' } })()
+if (startBranch && !opt('branch') && current !== startBranch && current !== 'HEAD' &&
+    !protectedBranches.includes(current) && current !== `autopilot/${feature}`) {
+  die(1, `refused: this run started on branch '${startBranch}' but HEAD is now '${current}'.\n` +
+    `Something switched branches during the run (a leader creating its own branch is the usual cause), and ship commits on\n` +
+    `whatever is checked out, so the feature would land there under a name that matches nothing in .sdlc.\n` +
+    `Switch back (git switch ${startBranch}) and re-run, or pass --branch ${current} to commit here on purpose.`)
+}
 const branch = opt('branch') || (isDefault ? `autopilot/${feature}` : current)
 if (branch !== current) must('switch', '-c', branch)
 

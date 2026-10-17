@@ -34,6 +34,7 @@ bash tools/link-skills.sh --hook   # --hook re-links after every git pull (new s
 .sdlc/features/*/evidence/
 .sdlc/features/*/evidence.json
 .sdlc/features/*/status.json
+.sdlc/features/*/run-branch
 test-results/
 playwright-report/
 ```

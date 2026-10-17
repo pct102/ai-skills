@@ -94,6 +94,27 @@ R="$(new_repo r7b)"; cd "$R"; git switch -q -c dev
 node "$SHIP" --feature game >/dev/null 2>&1
 check "an unlisted branch is committed on directly" "dev" "$(git rev-parse --abbrev-ref HEAD)"
 
+# 5c. the branch the run started on is recorded (run-branch, written by autopilot.sh); a branch
+# switched to mid-run is refused, because the feature's branch name is not the leader's to choose
+R="$(new_repo r13)"; cd "$R"
+printf 'main\n' > .sdlc/features/game/run-branch
+git switch -q -c claude/invented
+node "$SHIP" --feature game >/dev/null 2>&1; rc=$?
+check "refuses a branch switched to mid-run" "1" "$rc"
+check "…and commits nothing" "init" "$(git log --format=%s | head -1)"
+check "…and says which branch to go back to" "1" "$(node "$SHIP" --feature game 2>&1 | grep -c 'git switch main')"
+node "$SHIP" --feature game --branch claude/invented >/dev/null 2>&1
+check "--branch overrides the recorded start branch" "claude/invented" "$(git rev-parse --abbrev-ref HEAD)"
+R="$(new_repo r13b)"; cd "$R"; git switch -q -c dev
+printf 'dev\n' > .sdlc/features/game/run-branch
+node "$SHIP" --feature game >/dev/null 2>&1
+check "the recorded start branch itself is committed on" "dev" "$(git rev-parse --abbrev-ref HEAD)"
+R="$(new_repo r13c)"; cd "$R"
+printf 'main\n' > .sdlc/features/game/run-branch
+node "$SHIP" --feature game >/dev/null 2>&1
+check "a recorded start on main still gets autopilot/<feature>" "autopilot/game" "$(git rev-parse --abbrev-ref HEAD)"
+check "…and run-branch itself is never committed" "0" "$(git show --name-only --format= HEAD | grep -c run-branch)"
+
 # 6. an over-broad ownership still cannot pull in generated or private files
 R="$(new_repo r8)"; cd "$R"
 printf '{ "feature": "game", "owns": ["**"] }\n' > .sdlc/features/game/ownership.json

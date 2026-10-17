@@ -329,7 +329,32 @@ wait_for_workers() {
   done
 }
 
-[ -z "$resume" ] && claude_run "/feature-autopilot feature name: $feat. You are the leader of this run: do not write product code and do not run git commit — your first job is the feature state, .sdlc/features/$feat/status.json. Request: $req"
+# ---- the leader never touches git state, and the run's starting branch is recorded ---------------
+# The leader used to be told only "do not run git commit", so on real runs it helped itself to
+# `git checkout -b claude/<a name it invented>` at the start of a feature. sdlc-ship then found a
+# non-protected branch checked out and committed there, so the feature landed on a branch whose
+# name matched nothing in .sdlc. Creating a branch is sdlc-ship's job alone, and every leader
+# prompt now carries the same rule.
+git_rule="Git rule: you never change git state — no git checkout -b, git switch, git branch, git commit, git push, and no gh pr create, even when the request mentions a branch name. The branch is created once, at ship time, by node $AI_SKILLS_HOME/tools/sdlc-ship.mjs --feature $feat: it commits on autopilot/$feat (exactly the feature's name in .sdlc, the name this run was started with) when the run is on a protected branch, and on the branch the run started on otherwise."
+# sdlc-ship commits on whatever branch is checked out when it runs, so the branch the run starts on
+# decides where the feature lands. Record it (fresh starts only, so a resume keeps the original
+# baseline; ship compares against it and refuses a branch switched mid-run) and say so up front
+# when it is not protected: starting on a throwaway branch commits there by design, but that choice
+# should be made before the run, not discovered at ship time.
+run_branch_file=".sdlc/features/$feat/run-branch"
+if [ -z "$resume" ]; then
+  mkdir -p ".sdlc/features/$feat"
+  git rev-parse --abbrev-ref HEAD >"$run_branch_file" 2>/dev/null || true
+  start_branch=$(cat "$run_branch_file" 2>/dev/null)
+  protected_branches=$(model_setting PROTECTED_BRANCHES); protected_branches=${protected_branches:-main master}
+  protected_branches=$(printf %s "$protected_branches" | tr ',' ' ')
+  if [ -n "$start_branch" ] && [ "$start_branch" != HEAD ] &&
+     ! printf ' %s ' "$protected_branches" | grep -q " $start_branch "; then
+    echo "autopilot: starting on branch '$start_branch', not a protected branch ($protected_branches) — sdlc-ship will commit on it as-is. Start from main/master if you want the feature on autopilot/$feat."
+  fi
+fi
+
+[ -z "$resume" ] && claude_run "/feature-autopilot feature name: $feat. You are the leader of this run: do not write product code and do not run git commit. $git_rule Your first job is the feature state, .sdlc/features/$feat/status.json. Request: $req"
 
 # Claude can stop early: its turn ends, or the plan's usage window is spent. The state is on disk, so
 # start a fresh Claude that continues from it, a bounded number of times. accepted, blocked and
@@ -349,7 +374,7 @@ while :; do
       if [ "$start_tries" -lt "${AUTOPILOT_START_RETRIES:-2}" ]; then
         start_tries=$((start_tries + 1))
         echo "autopilot: feature '$feat' never started: .sdlc/features/$feat/status.json was not written. Asking the leader to start the procedure (attempt $start_tries of ${AUTOPILOT_START_RETRIES:-2})."
-        start_prompt="/feature-autopilot feature name: $feat. CORRECTION: the previous call ended without writing .sdlc/features/$feat/status.json, so the feature never started and there is nothing to resume. You are the leader: do not write product code and do not run git commit. Start it now, in this order: write spec.md, plan.md, test-contract.md, acceptance.yaml and ownership.json, then run node $AI_SKILLS_HOME/tools/sdlc-verify.mjs --feature $feat --set-phase building, then send the builder. \"The work is already done\" is not a reason to skip: say what you found in spec.md and run the procedure against what is missing, so the code that exists is actually verified and evidence exists."
+        start_prompt="/feature-autopilot feature name: $feat. CORRECTION: the previous call ended without writing .sdlc/features/$feat/status.json, so the feature never started and there is nothing to resume. You are the leader: do not write product code and do not run git commit. $git_rule Start it now, in this order: write spec.md, plan.md, test-contract.md, acceptance.yaml and ownership.json, then run node $AI_SKILLS_HOME/tools/sdlc-verify.mjs --feature $feat --set-phase building, then send the builder. \"The work is already done\" is not a reason to skip: say what you found in spec.md and run the procedure against what is missing, so the code that exists is actually verified and evidence exists."
         [ -n "$req" ] && start_prompt="$start_prompt Request: $req"
         claude_run "$start_prompt"
         continue
@@ -390,7 +415,7 @@ while :; do
   fi
   tries=$((tries + 1))
   echo "autopilot: Claude stopped while the feature was in phase '$p'; resuming ($tries of ${AUTOPILOT_RESUMES:-3})..."
-  claude_run "/feature-autopilot feature name: $feat. RESUME: the previous run stopped before the feature was accepted. Do not start over and do not ask the user anything. Read .sdlc/features/$feat (spec.md, plan.md, acceptance.yaml, status.json, decisions.md, trace.jsonl and sdlc-slices.mjs status $feat if slices.json exists, and the newest builder-N.md and qa-N.md in .oc/ and in each .oc/lane-*/) and compare with the files on disk, then continue from the first step that is not done. A builder or QA call (or several lanes) may have finished after the run stopped: read its output file before sending the work again."
+  claude_run "/feature-autopilot feature name: $feat. RESUME: the previous run stopped before the feature was accepted. Do not start over and do not ask the user anything. Read .sdlc/features/$feat (spec.md, plan.md, acceptance.yaml, status.json, decisions.md, trace.jsonl and sdlc-slices.mjs status $feat if slices.json exists, and the newest builder-N.md and qa-N.md in .oc/ and in each .oc/lane-*/) and compare with the files on disk, then continue from the first step that is not done. A builder or QA call (or several lanes) may have finished after the run stopped: read its output file before sending the work again. $git_rule"
 done
 node "$AI_SKILLS_HOME/tools/sdlc-trace.mjs" --feature "$feat" --render || true
 

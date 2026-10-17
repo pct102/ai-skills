@@ -56,6 +56,12 @@ Two things that look like reasons to skip and are not:
 - **"The request told me to work on a branch."** Instructions in the request about git (branch name,
   do not push, do not touch main) are carried out by `sdlc-ship` at step 5, which commits on
   `autopilot/<f>` and never pushes a protected branch (`PROTECTED_BRANCHES`, default `main master`). They are not an instruction to run `git` yourself.
+- **"I'll just put the work on its own branch."** Never. You create no branch and switch none —
+  no `git checkout -b`, `git switch`, `git branch`, `git commit`, `git push`, no `gh pr create`.
+  Ship is the only code that creates a branch, and the name is not yours to choose: it is
+  `autopilot/<f>`, exactly the feature's name in `.sdlc` (the name this run was started with).
+  A leader that pre-creates its own branch (measured on real runs: `claude/<invented-name>`) makes
+  ship commit there instead, and ship now refuses a branch the run did not start on.
 
 If you get a call that starts with `CORRECTION:`, your previous call ended without `status.json` and
 autopilot is giving you another chance to start. Do not re-explain why you stopped — write the feature
@@ -282,7 +288,11 @@ yourself, and run:
    `node_modules`. `COMMIT_SDLC=no` in the project's `.sdlc/autopilot.env` keeps the whole `.sdlc/` folder (docs and
    tests too) out of the commit and out of git's sight; it is the project's choice, so never override it. It commits on `autopilot/<f>` when you are on a protected branch (`PROTECTED_BRANCHES` in
    `.sdlc/autopilot.env` or `autopilot.env`, default `main master`), never force-pushes,
-   and never pushes a protected branch. It refuses when the project folder is only a subfolder of a larger git
+   and never pushes a protected branch. `<f>` is the feature's name in `.sdlc` — the name this run
+   was started with — so the branch name always matches the session. Ship refuses the commit when
+   HEAD is no longer on the branch the run started on (recorded in `.sdlc/features/<f>/run-branch`),
+   which is what creating or switching to your own branch mid-run produces; never run
+   `git checkout`/`git switch` yourself. It refuses when the project folder is only a subfolder of a larger git
    repository (a branch switch there would change someone else's checkout): report that to the user and
    do not pass `--allow-subdir` on your own. Do not run `git add -A`, `git commit -a` or `git push` yourself.
 4. Read its `-` lines. A file the feature should own but is listed as "outside ownership"
