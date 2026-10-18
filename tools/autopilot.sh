@@ -230,6 +230,10 @@ if [ -n "$viewer" ] || [ -z "${AUTOPILOT_NO_WINDOWS:-}" ]; then
   if [ -z "${AUTOPILOT_NO_CLAUDE_WINDOW:-}" ]; then
     open_window "node '$AI_SKILLS_HOME/tools/claude-follow.mjs' --cwd '$PWD' --since $(date +%s)" "claude-follow.mjs --cwd $PWD" "leader"
   fi
+  # jev checkpoints (tools/jev-check.sh) need the proxy up; start it if it was left stopped. Best effort: a run never depends on it.
+  [ -z "${AUTOPILOT_NO_JEV_WINDOW:-}" ] && [ -x "$AI_SKILLS_HOME/tools/jev-proxy/jev-proxy" ] && \
+    ! "$AI_SKILLS_HOME/tools/jev-proxy/jev-proxy" status 2>&1 | grep -qi running && \
+    "$AI_SKILLS_HOME/tools/jev-proxy/jev-proxy" start >/dev/null 2>&1 || true
   jev_log=${JEV_PROXY_LOG:-$HOME/.config/jev-cli/proxy.log}
   if [ -z "${AUTOPILOT_NO_JEV_WINDOW:-}" ] && [ -f "$jev_log" ]; then
     open_window "tail -n 40 -f '$jev_log'" "tail -n 40 -f $jev_log" "jev proxy"
