@@ -71,9 +71,13 @@ checks:
   # `qa-evidence` is the mandatory QA gate for autopilot features. Its cmd runs the e2e suite QA wrote, and it
   # passes only if the trace also shows a successful QA reply that came after the last builder reply. QA that
   # was skipped, failed, or went stale because the builder changed things afterwards turns this check red.
+  # The cmd must name evidence/playwright.json: naming that file makes the JSON report part of the gate, so a
+  # skipped-everything suite that exits 0 cannot be accepted. Write it with a shell redirect, not a reporter
+  # option, and keep `--reporter=json,html` as written. The HTML report lands in playwright-report/: local-only
+  # (project .gitignore template + sdlc-ship skips it), never stage or commit it.
   - id: qa-01
     kind: qa-evidence
-    cmd: npx playwright test e2e/example
+    cmd: PLAYWRIGHT_HTML_OPEN=never npx playwright test e2e/example --reporter=json,html > .sdlc/features/example-feature/evidence/playwright.json
     expect: exit-0
     desc: QA ran the black-box suite against the finished build
 

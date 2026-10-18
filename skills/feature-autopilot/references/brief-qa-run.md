@@ -4,6 +4,8 @@ The builder says it is done. Run what you wrote and report; do not edit product 
 
 0. Run the suite with the `qa-evidence` command from `acceptance.yaml` as written. It writes `.sdlc/features/<f>/evidence/playwright.json`
    (and `PLAYWRIGHT_HTML_OPEN=never` keeps a failing run from stopping to serve the HTML report). Do not change the redirect or the reporters.
+   Keep the default `playwright-report/` folder name in your playwright config: the ship tool only skips that exact name,
+   and the HTML report is local-only — never stage or commit `playwright-report/` or `test-results/`.
 1. Run the fast tier first: `<fast command>` (`--max-failures=3`). Then the full suite once, including `@slow`.
 2. For every failure, work out whether the product or your test is wrong. Fix your own test bugs in `e2e/<f>/`
    and rerun. Do not weaken an assertion to make it pass.
