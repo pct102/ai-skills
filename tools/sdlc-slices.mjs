@@ -133,7 +133,7 @@ function saveState(p, st) {
 
 // ------------------------------------------------------------------ snapshot
 
-const IGNORE = [/^\.git(\/|$)/, /^\.sdlc(\/|$)/, /(^|\/)node_modules(\/|$)/, /(^|\/)(test-results|playwright-report|\.playwright)(\/|$)/, /(^|\/)\.DS_Store$/, /\.log$/]
+const IGNORE = [/^\.next(\/|$)/, /^tsconfig\.tsbuildinfo$/, /^\.git(\/|$)/, /^\.sdlc(\/|$)/, /(^|\/)node_modules(\/|$)/, /(^|\/)(test-results|playwright-report|\.playwright)(\/|$)/, /(^|\/)\.DS_Store$/, /\.log$/]
 
 function snapshot(root = '.') {
   const out = {}
