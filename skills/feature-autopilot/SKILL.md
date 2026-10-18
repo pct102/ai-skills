@@ -175,7 +175,13 @@ On `124`, `125`, or any non-zero exit:
    - `plan.md`, including an **Interfaces** section when you will slice (names, signatures, events, data shapes that cross a boundary).
    - `test-contract.md` (`test-contract-template.md`): how to open the thing, the stable hooks, one row per observable
      behaviour with a `fast` or `slow` tier. Behaviours only, never implementation. This is what QA builds from.
-   - `acceptance.yaml`: the unit/lint/typecheck/build checks, plus a `qa-evidence` check whose `cmd` runs the full e2e suite.
+   - `acceptance.yaml`: the unit/lint/typecheck/build checks, plus a `qa-evidence` check whose `cmd` runs the full e2e suite
+     and writes Playwright's JSON report where the gate and the evidence page read it. Use exactly this shape (the `mkdir` first,
+     `PLAYWRIGHT_HTML_OPEN=never` so a failing run does not stop to serve the HTML report, the redirect last):
+     `mkdir -p .sdlc/features/<f>/evidence && PLAYWRIGHT_HTML_OPEN=never npx playwright test e2e/<f> --reporter=json,html > .sdlc/features/<f>/evidence/playwright.json`.
+     A `cmd` that names `playwright.json` makes the report part of the gate: a missing or unreadable file fails the check, so does a
+     run where no test executed (every test skipped exits 0 on its own), and a failed test in the JSON fails it. Skipped or flaky
+     tests only warn. `autopilot.sh` turns the report and the screenshots into `diagrams/evidence.html` after acceptance.
       **Security gate:** when the feature touches auth, database, storage, files, payments, or user-generated
       content, also add a `kind: security` check running
       `node "$AI_SKILLS_HOME/tools/security-scan.mjs" . --severity high` (see `skills/security-audit/SKILL.md`).
@@ -248,7 +254,8 @@ defect list. Unset, nothing is sent. Credentials (`JIRA_EMAIL`, `JIRA_API_TOKEN`
 project file or the environment: never copy them into an issue, a log or a commit.
 
 Send the qa lane `references/brief-qa-run.md` (same lane, so it keeps its session): run the fast tier, then
-the full suite including `@slow`, capture screenshots, reply with the table and `QA RESULT: PASS|FAIL`.
+the full suite including `@slow`, capture screenshots, reply with the table and `QA RESULT: PASS|FAIL`. QA runs the suite with the
+same command as the `qa-evidence` check (it writes `evidence/playwright.json`), so the report matches what the gate sees.
 This reply is what the `qa-evidence` check looks for, and it must come after the builder's last reply.
 
 ### 4. Leader review
@@ -272,13 +279,17 @@ yourself, and run:
 
 1. Write `evidence.md` (criteria → screenshot → check result, defects found and fixed) and
    report per the `app-sdlc` completion report using the status from `status.json`.
-2. **Diagrams.** Do not draw them here. `autopilot.sh` runs the `feature-diagrams` skill as its own pass
+2. **Visual review** is not yours either. With `VISUAL_QA=1` in `autopilot.env`, `autopilot.sh` has a second opencode model (not the one
+   that wrote the tests) look at `evidence/*.png` against `spec.md` after you finish and write `visual-review.md`; its `FLAG` lines show on
+   the evidence page as suspicions and never change the verdict. Do not read it, do not start a repair round from it, and do not add a
+   `VISUAL_QA` or `VISUAL_MODEL` to a call. Mention in your report that screenshots are in `evidence/`.
+3. **Diagrams.** Do not draw them here. `autopilot.sh` runs the `feature-diagrams` skill as its own pass
    once you finish, because that step was easy to skip at the end of a long run. It draws the
    architecture and the user workflow from the code, then `tools/sdlc-diagrams.mjs` adds the generated
    ones (the trace, plus the status map while the feature is not accepted) and the hub page `.sdlc/features/<f>/diagrams/index.html`. Name that file
    in your report. If you were not started by `autopilot.sh`, tell the user to run
    `claude -p "/feature-diagrams feature name: <f>" --dangerously-skip-permissions`.
-3. **Commit, only if `status.json` says `accepted`** (never for `escalated` or `blocked`)
+4. **Commit, only if `status.json` says `accepted`** (never for `escalated` or `blocked`)
    and the environment does not set `AUTOPILOT_NO_COMMIT=1`:
 
    ```bash

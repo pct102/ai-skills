@@ -16,8 +16,9 @@
 // No dependencies. Node >= 18.
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, appendFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, appendFileSync, copyFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { parsePlaywright, gateProblems } from './lib/pw-report.mjs'
 
 const VERIFY_VERSION = 1
 const DEFAULT_BUDGET = 2
@@ -273,6 +274,32 @@ function qaEvidenceProblem(featureDir) {
   return null
 }
 
+// The qa-evidence command may write Playwright's JSON report to evidence/playwright.json (see the SKILL). When its cmd names
+// that file, the file is part of the gate: a missing or unreadable one fails the check, so a skipped-everything suite that
+// exits 0 cannot be accepted. A cmd that does not name it (an older acceptance.yaml) is judged as before.
+const PW_JSON = join('evidence', 'playwright.json')
+function playwrightProblems(featureDir, cmd) {
+  if (!String(cmd || '').includes('playwright.json')) return null
+  let text
+  try { text = readFileSync(join(featureDir, PW_JSON), 'utf8') } catch { return { fail: [`${PW_JSON} was not written by the qa-evidence cmd`], warn: [] } }
+  return gateProblems(parsePlaywright(text))
+}
+
+// A failed run's screenshots are overwritten by the next run, so keep them: evidence/round-N/ is what the evidence page shows
+// as "before". Never changes the verdict; any error here is swallowed.
+function snapshotEvidence(featureDir) {
+  try {
+    const ev = join(featureDir, 'evidence')
+    const pngs = readdirSync(ev).filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
+    if (!pngs.length) return
+    const n = readdirSync(ev).filter((f) => /^round-\d+$/.test(f)).length + 1
+    if (n > 5) return
+    const dir = join(ev, `round-${n}`)
+    mkdirSync(dir, { recursive: true })
+    for (const f of pngs) copyFileSync(join(ev, f), join(dir, f))
+  } catch { /* evidence is a convenience; the verdict does not depend on it */ }
+}
+
 function readContract(featureDir) {
   const file = join(featureDir, 'acceptance.yaml')
   if (!existsSync(file)) {
@@ -466,6 +493,12 @@ function main(argv) {
       // half, QA could be skipped, or its pass could predate the last edit, and the gate would still be green.
       const why = qaEvidenceProblem(featureDir)
       if (why) { ok = false; note = `QA evidence missing: ${why}`; run.output = `QA evidence missing: ${why}\n${run.output || ''}` }
+      const pw = playwrightProblems(featureDir, check.cmd)
+      if (pw) {
+        if (pw.fail.length) { ok = false; note = `Playwright report: ${pw.fail.join('; ')}`; run.output = `Playwright report: ${pw.fail.join('; ')}\n${run.output || ''}` }
+        if (pw.warn.length) run.output = `WARN ${pw.warn.join('; ')}\n${run.output || ''}`
+        if (pw.fail.length) snapshotEvidence(featureDir)
+      }
     }
     results.push({
       id: check.id,

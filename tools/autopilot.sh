@@ -424,6 +424,31 @@ while :; do
 done
 node "$AI_SKILLS_HOME/tools/sdlc-trace.mjs" --feature "$feat" --render || true
 
+# Visual review (opt-in: VISUAL_QA=1 in autopilot.env). A passing test only checks what it asserts, so a second opencode model, not the
+# one that wrote the tests, looks at the screenshots against the spec and lists what looks wrong. Its findings go to visual-review.md and
+# show on the evidence page as suspicions: they never change the acceptance result and never start a repair round. Runs as its own pass
+# like the diagrams (a last step of a long run gets skipped), only for an accepted feature, and never fails the run.
+visual_review=".sdlc/features/$feat/visual-review.md"
+if [ "$(model_setting VISUAL_QA)" = 1 ]; then
+  if [ "$(phase_of)" != accepted ]; then
+    echo "autopilot: visual review skipped: the feature is '$(phase_of)', not accepted."
+  elif ! ls ".sdlc/features/$feat/evidence/"*.png >/dev/null 2>&1; then
+    echo "autopilot: visual review skipped: no screenshots in .sdlc/features/$feat/evidence/."
+  else
+    echo "visual review: a second model is looking at the screenshots (VISUAL_QA=1)..."
+    mkdir -p ".sdlc/features/$feat/.oc/prompts"
+    visual_prompt=".sdlc/features/$feat/.oc/prompts/visual.md"
+    sed "s#<f>#$feat#g" "$AI_SKILLS_HOME/skills/feature-autopilot/references/brief-qa-visual.md" > "$visual_prompt"
+    if OC_ATTACH=$url bash "$AI_SKILLS_HOME/tools/oc-agent.sh" visual "$feat" "$visual_prompt" > "$visual_review.tmp" 2>"$visual_review.err" && grep -q 'VISUAL RESULT' "$visual_review.tmp"; then
+      mv "$visual_review.tmp" "$visual_review"; rm -f "$visual_review.err"
+      echo "visual review: $(grep -c '^FLAG' "$visual_review" || true) item(s) flagged, see $visual_review"
+    else
+      rm -f "$visual_review.tmp" "$visual_review"
+      echo "autopilot: the visual review did not produce a result (see $visual_review.err); the feature is unaffected."
+    fi
+  fi
+fi
+
 # A separate, short pass draws the two diagrams that need a model (how it is built, what the user does).
 # It was a last step of the main run and got skipped; as its own pass it cannot be forgotten.
 D=".sdlc/features/$feat/diagrams"

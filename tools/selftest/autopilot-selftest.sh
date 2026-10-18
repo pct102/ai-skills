@@ -24,7 +24,16 @@ case "$T" in /tmp/*|/var/*|/private/*) ;; *) echo "unexpected temp dir $T"; exit
 export T   # the fake ps below reads it to find the pid the test wants killed
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
-printf '#!/bin/sh\nsleep 6\n' > "$T/bin/opencode"
+cat > "$T/bin/opencode" <<'FAKE'
+#!/bin/sh
+# The server (`serve`) just stays up. A `run` call (the visual review) is logged and answers at once.
+case "$*" in *--help*) exit 0 ;; esac
+case "$1" in
+  run) echo "$*" >> "$OCRUNS"; echo '{"type":"text","sessionID":"s","part":{"type":"text","text":"CHECKLIST\nFLAG | B1 | B1-a.png | the sofa overlaps the wall | spec\nVISUAL RESULT: FLAGS 1"}}'; exit "${OC_RUN_RC:-0}" ;;
+  export|session) exit 1 ;;
+esac
+sleep 6
+FAKE
 cat > "$T/bin/claude" <<'FAKE'
 #!/bin/sh
 # Records every call. The Nth /feature-autopilot call sets the Nth phase of PHASES (or PHASE), the last one repeating.
@@ -48,6 +57,7 @@ case "$*" in
     skip_status=0
     [ -n "${NO_STATUS:-}" ] && skip_status=1
     case ",${NO_STATUS_CALLS:-}," in *",$k,"*) skip_status=1 ;; esac
+    [ -n "${EVIDENCE:-}" ] && { mkdir -p $F/evidence; : > $F/evidence/B1-a.png; }
     [ "$skip_status" = 1 ] || printf '{"feature":"x","phase":"%s","budget":2,"repair_iterations":0}\n' "$phase" > $F/status.json
     if [ -n "${LANES:-}" ] && [ "$k" = 1 ]; then
       # two parallel lane calls, finishing at different times; the slower one is the one that must be waited for
@@ -113,7 +123,7 @@ chmod +x "$T/bin/opencode" "$T/bin/claude" "$T/bin/uname" "$T/bin/osascript" "$T
 run() { # name, env assignments..., then autopilot args
   local name="$1"; shift
   local d="$T/$name"; mkdir -p "$d"; cd "$d" || exit 1
-  CALLS="$d/calls.log"; export CALLS; : > "$CALLS"
+  CALLS="$d/calls.log"; export CALLS; : > "$CALLS"; OCRUNS="$d/oc-runs.log"; export OCRUNS; : > "$OCRUNS"
   # A jev proxy log pointed at a file that does not exist keeps three windows the default here; a case
   # that wants the fourth passes its own JEV_PROXY_LOG (the last assignment to env wins).
   env PATH="$T/bin:$PATH" JEV_PROXY_LOG="$T/no-such-jev.log" "$@" >"$d/out.log" 2>&1
@@ -300,6 +310,22 @@ check "…the fourth tails that log" "1" "$(grep -c 'tail -n 40 -f' $T/w6/calls.
 check "…and it is closed with the rest" "4" "$(closed w6)"
 run w7 FAKE_DARWIN=1 PHASE=accepted JEV_PROXY_LOG="$T/jev.log" AUTOPILOT_NO_JEV_WINDOW=1 bash "$AP" --no-diagrams "Make a thing"
 check "AUTOPILOT_NO_JEV_WINDOW=1 leaves it out" "3 0" "$(opened w7) $(grep -c 'tail -n 40' $T/w7/calls.log.windows)"
+
+# ---- the visual review pass: opt-in, accepted features with screenshots only -------------------------------------------
+V=.sdlc/features/make-a-thing
+run v1 PHASE=accepted EVIDENCE=1 VISUAL_QA=1 bash "$AP" --no-diagrams "Make a thing"
+check "VISUAL_QA=1, accepted, screenshots: one visual call is made" "1" "$(grep -c '^run ' "$T/v1/oc-runs.log")"
+check "…with a model that accepts images (the visual chain, not the builder's)" "1" "$(grep -c -- '-m opencode-go/glm-5.3-flash' "$T/v1/oc-runs.log" | awk '{print ($1>0)?1:0}')"
+check "…its review is kept in visual-review.md" "1" "$(grep -c '^FLAG' "$T/v1/$V/visual-review.md")"
+check "…and the evidence page shows the flag" "1" "$(grep -c 'overlaps the wall' "$T/v1/$V/diagrams/evidence.html" | awk '{print ($1>0)?1:0}')"
+run v2 PHASE=accepted EVIDENCE=1 bash "$AP" --no-diagrams "Make a thing"
+check "VISUAL_QA unset: no visual call and no review file" "0 0" "$(grep -c '^run ' "$T/v2/oc-runs.log") $([ -e "$T/v2/$V/visual-review.md" ] && echo 1 || echo 0)"
+run v3 PHASE=escalated EVIDENCE=1 VISUAL_QA=1 bash "$AP" --no-diagrams "Make a thing"
+check "VISUAL_QA=1 but the feature is not accepted: skipped" "0" "$(grep -c '^run ' "$T/v3/oc-runs.log")"
+run v4 PHASE=accepted VISUAL_QA=1 bash "$AP" --no-diagrams "Make a thing"
+check "VISUAL_QA=1 but there are no screenshots: skipped" "0" "$(grep -c '^run ' "$T/v4/oc-runs.log")"
+run v5 PHASE=accepted EVIDENCE=1 VISUAL_QA=1 OC_RUN_RC=1 bash "$AP" --no-diagrams "Make a thing"
+check "a visual call that fails leaves no review, the run still ends normally" "0 0" "$([ -e "$T/v5/$V/visual-review.md" ] && echo 1 || echo 0) $(grep -c 'ended without starting' "$T/v5/out.log")"
 
 echo
 echo "passed=$pass failed=$fail"

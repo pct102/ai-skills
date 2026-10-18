@@ -79,6 +79,8 @@ Set `ISSUE_TRACKER=github` or `jira` in `autopilot.env` and the QA agent files a
 
 ## Configuration and secrets
 
+After a feature is accepted, autopilot writes `diagrams/evidence.html`: every Playwright test, failures first, with its steps, errors and screenshots (a red-bordered picture is the same screenshot from an earlier failed run). The `qa-evidence` gate also reads Playwright's JSON report, so a run where every test was skipped no longer passes. Set `VISUAL_QA=1` in `autopilot.env` to have a second model (not the one that wrote the tests) look at the screenshots against the spec; what it flags appears on that page as suspicions and never changes the verdict.
+
 No keys live in this repo. Copy `autopilot.env.example` to `autopilot.env` (git-ignored) to choose the leader, builder and QA models. Provider logins stay outside the repo (`claude login`, `opencode auth login`); the Jev proxy reads `GEMINI_API_KEY` or `~/.config/jev-cli/gemini_key.txt` (see `tools/jev-proxy/README.md`).
 
 ## Repository layout

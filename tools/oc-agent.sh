@@ -6,7 +6,8 @@
 #   oc-agent.sh [--lane <name>] --wait  <role> <feature> [seconds]      wait up to N s (default 500) for the async call
 #                                                                       exit 75 = still running, call --wait again
 #
-# role     builder | qa   (picks the model; each role keeps its own session)
+# role     builder | qa | visual   (picks the model; each role keeps its own session). visual only looks at screenshots, so
+#          its models must accept images (`opencode models --verbose`: capabilities.input.image).
 # --lane   a parallel line of work, normally one slice (a-z, 0-9, _; starts with a letter). Each lane has its own
 #          session and files under .oc/lane-<name>/, so several builders can run at once without sharing context.
 #          In the trace the lane shows as its own actor: builder-<name>.
@@ -44,12 +45,13 @@ done
 case "$lane" in ""|[a-z]*) ;; *) echo "lane must start with a lowercase letter: $lane" >&2; exit 3 ;; esac
 case "$lane" in *[!a-z0-9_]*) echo "lane may contain only a-z, 0-9 and _: $lane" >&2; exit 3 ;; esac
 
-role=${1:?role: builder|qa}; feature=${2:?feature}
+role=${1:?role: builder|qa|visual}; feature=${2:?feature}
 actor=$role${lane:+-$lane}   # the name this call has in the trace
 if [ "$mode" = wait ]; then prompt=""; else prompt=${3:?prompt file}; fi
 case "$role" in
   builder) default_model=opencode-go/muse-spark-1.3-contributor,opencode/mimo-v2.6-flash-free,opencode/glm-5.3-flash-free,opencode/nemotron-3-ultra-free,opencode/deepseek-v4.1-flash-free ;;
   qa)      default_model=opencode-go/deepseek-v4.1-flash ;;
+  visual)  default_model=opencode-go/glm-5.3-flash,opencode-go/mimo-v2.5,opencode-go/longcat-2.5-preview-free,opencode-go/deepseek-v4.1-flash ;;
   *) echo "unknown role: $role" >&2; exit 3 ;;
 esac
 # Model, first match wins: OC_MODEL, <ROLE>_MODEL_<LANE>, <ROLE>_MODEL, the default. Settings come from the

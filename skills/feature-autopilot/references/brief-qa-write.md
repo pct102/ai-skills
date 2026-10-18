@@ -10,7 +10,13 @@ the product source folders: your tests must be able to catch what the builder go
   titles (`B1: valid login lands on the dashboard`).
 - Use only the hooks listed in the contract. If you need one that is not listed, write the test with the
   most reasonable selector and list the missing hook in your reply.
-- Take a screenshot at each visible state: `.sdlc/features/<f>/evidence/<behaviour-id>-<step>.png`.
+- Take a screenshot at each visible state: `.sdlc/features/<f>/evidence/<behaviour-id>-<step>.png`. The name is how the evidence
+  page and the visual reviewer tie a picture to its behaviour: the id first, then a short step word (`B3-after-drop.png`).
+- Wrap each visible state in `await test.step('<what the user does or sees>', async () => { ... })`, so the report shows named steps
+  and not Playwright's internal ones, and put the screenshot of that state inside the step.
+- Config: `use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' }`. Playwright's default for both is `off`, and without
+  them a failing test leaves no picture and no trace for the person reading the report. Your explicit screenshots above are the
+  evidence for passing states.
 - Mark `slow` behaviours with `test.describe('@slow', ...)` or a title tag `@slow`, so `--grep-invert @slow` skips them.
 - Set a per-test timeout of 15 s in the config or the test (`test.setTimeout(15000)`), and make waits explicit
   and short. A test that waits 30 s to fail costs the whole team 30 s each round.

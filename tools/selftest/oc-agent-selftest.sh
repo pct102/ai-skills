@@ -155,6 +155,10 @@ check "a 429 that opencode reports with exit 0 and no reply text still falls thr
 echo "m1 $(date +%s) 0.15" >> .sdlc/features/chainexit0/.oc/exhausted-models
 check "a repeated 429 doubles the rest (0.15 h -> 0.3 h)" "0.3" "$(awk -v m=m1 -v now="$(date +%s)" -v base=0.15 -v cap=6 '$1==m && now-$2 < 7200 {n++} END{h=base*(2^n); print (h>cap?cap:h)}' .sdlc/features/chainexit0/.oc/exhausted-models | head -1)"
 unset BAD_MODEL BUILDER_MODEL BAD_EXIT0
+rm -f "$MODELLOG"; unset BUILDER_MODEL
+VISUAL_MODEL=vis1,vis2 PATH="$T/bin2:$PATH" bash "$OC" visual vfeat "$T/p/prompt.md" >/dev/null 2>&1; rc=$?
+check "the visual role runs on VISUAL_MODEL, not the builder's models" "0 vis1" "$rc $(xargs < "$MODELLOG")"
+check "an unknown role is still refused (3)" "3" "$(bash "$OC" reviewer vfeat "$T/p/prompt.md" >/dev/null 2>&1; echo $?)"
 
 echo
 echo "passed=$pass failed=$fail"

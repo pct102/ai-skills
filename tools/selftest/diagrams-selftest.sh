@@ -133,6 +133,40 @@ check "…and says it skipped both" "2" "$(printf '%s' "$out" | grep -c 'skipped
 check "…and wrote no diagram" "0" "$(ls .sdlc/features/empty/diagrams/*.html 2>/dev/null | grep -vc index.html)"
 check "an unknown feature is a usage error" "3" "$(node "$DIAG" --feature nope >/dev/null 2>&1; echo $?)"
 
+# ---- the evidence page: tests, screenshots, earlier failed round, visual review ------------------------------------
+E=.sdlc/features/ev
+mkdir -p $E/evidence/round-1
+printf 'p' > $E/evidence/B1-start.png; printf 'p' > $E/evidence/B2-after-drop.png; printf 'old' > $E/evidence/round-1/B2-after-drop.png
+cat > $E/evidence/playwright.json <<'J'
+{
+  "config": {},
+  "suites": [{ "title": "a.spec.ts", "file": "a.spec.ts", "specs": [
+    { "title": "B1: valid <login> lands on the dashboard", "file": "a.spec.ts", "tests": [{ "status": "expected", "results": [{ "status": "passed", "duration": 120, "steps": [{ "title": "open the page", "duration": 40 }], "attachments": [] }] }] },
+    { "title": "B2: dropped object snaps to the wall", "file": "a.spec.ts", "tests": [{ "status": "unexpected", "results": [{ "status": "failed", "duration": 900, "errors": [{ "message": "expected 1 got 2" }], "steps": [{ "title": "drop the sofa", "duration": 300, "error": { "message": "boom" } }], "attachments": [] }] }] }
+  ] }],
+  "errors": []
+}
+J
+printf 'CHECKLIST\n- C1: sofa inside the room -> flagged\nFLAG | B2 | B2-after-drop.png | the sofa overlaps the wall on the right | spec: objects stay inside the room\nVISUAL RESULT: FLAGS 1\n' > $E/visual-review.md
+printf '{"feature":"ev","phase":"accepted","budget":2}\n' > $E/status.json
+out="$(node "$DIAG" --feature ev --no-browser 2>&1)"; rc=$?
+P=$E/diagrams/evidence.html
+check "an evidence page is made from the Playwright JSON, exit stays 0" "0" "$rc"
+check "…the page exists" "1" "$([ -s $P ] && echo 1 || echo 0)"
+check "…failures come before passes" "1" "$(node -e 'const h=require("fs").readFileSync(process.argv[1],"utf8");console.log(h.indexOf("t failed")>0&&h.indexOf("t failed")<h.indexOf("t passed")?1:0)' $P)"
+check "…titles are escaped (no raw <login> tag)" "0" "$(grep -c '<login>' $P)"
+check "…the failing test shows its error and its step" "2" "$(grep -o -E 'expected 1 got 2|drop the sofa' $P | wc -l | tr -d ' ')"
+check "…a screenshot is tied to its test by id (B2-after-drop.png)" "1" "$(grep -c 'B2-after-drop.png' $P | awk '{print ($1>0)?1:0}')"
+check "…the earlier failed run's picture is shown as 'before'" "1" "$(grep -c 'before (round-1)' $P | awk '{print ($1>0)?1:0}')"
+check "…the visual flag is shown as a suspicion" "1" "$(grep -c 'overlaps the wall' $P | awk '{print ($1>0)?1:0}')"
+check "…the hub lists the page" "1" "$(grep -c 'evidence.html' $E/diagrams/index.html | awk '{print ($1>0)?1:0}')"
+printf 'not json' > $E/evidence/playwright.json
+node "$DIAG" --feature ev --no-browser >/dev/null 2>&1; rc=$?
+check "an unreadable JSON still exits 0 and the page says so" "0 1" "$rc $(grep -c 'Cannot read evidence/playwright.json' $P)"
+rm -rf $E/evidence $E/visual-review.md
+node "$DIAG" --feature ev --no-browser >/dev/null 2>&1
+check "no QA files: the page is not made and a stale one is removed" "0" "$([ -e $P ] && echo 1 || echo 0)"
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

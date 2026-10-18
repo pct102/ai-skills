@@ -23,6 +23,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stamp, clockOf, range } from './trace-time.mjs'
+import { renderEvidencePage } from './lib/evidence-page.mjs'
 
 const a = process.argv.slice(2)
 const opt = (k, d = '') => { const i = a.indexOf('--' + k); return i < 0 ? d : (a[i + 1] ?? true) }
@@ -281,6 +282,15 @@ for (const [name, d] of jobs) {
   if (r.ok) console.log(`+ ${name}: ${d.json.meta.output}  (${r.note})`)
   else { failed++; console.log(`! ${name}: ${r.why}`) }
 }
+
+// ---------------------------------------------------------------- evidence page (tests, screenshots, visual review)
+// Made from files QA and the visual reviewer already left; with none of them there is no page, and an old one is removed.
+// Best effort: a failure here is reported and never changes the exit code.
+try {
+  const html = renderEvidencePage({ feature, fdir, outDir: ddir })
+  if (html) { writeFileSync(join(ddir, 'evidence.html'), html); console.log(`+ evidence: ${join(ddir, 'evidence.html')}`) }
+  else rmSync(join(ddir, 'evidence.html'), { force: true })
+} catch (e) { console.log(`! evidence: ${clip(e.message, 200)} (the page was not made; nothing else is affected)`) }
 
 // ---------------------------------------------------------------- hub
 const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]))
