@@ -24,7 +24,7 @@ case "$T" in /tmp/*|/var/*|/private/*) ;; *) echo "unexpected temp dir $T"; exit
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/.config/jev-cli"
 
-doctor() { env -i PATH="$PATH" HOME="$T" "$@" bash "$PROXY" doctor 2>&1; }
+doctor() { env -i PATH="$PATH" HOME="$T" AUTOPILOT_GLOBAL_ENV="$T/none.env" "$@" bash "$PROXY" doctor 2>&1; }
 
 # gemini, key present
 printf '{"backend":"gemini","model":"gemini-2.5-flash"}\n' > "$T/.config/jev-cli/config.json"

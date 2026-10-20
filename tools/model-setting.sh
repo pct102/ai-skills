@@ -16,7 +16,7 @@ model_setting() {
   local k=$1 v f root
   root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
   v=$(printenv "$k" || true); [ -n "$v" ] && { echo "$v"; return; }
-  for f in .sdlc/autopilot.env "$root/autopilot.env"; do
+  for f in .sdlc/autopilot.env "${AUTOPILOT_GLOBAL_ENV:-$root/autopilot.env}"; do
     [ -f "$f" ] || continue
     v=$(sed -n "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*//p" "$f" | tail -1 | sed 's/[[:space:]]*#.*$//;s/^["'\'']//;s/["'\'']$//')
     [ -n "$v" ] && { echo "$v"; return; }

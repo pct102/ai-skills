@@ -11,6 +11,8 @@ if [ -L "$_BIN" ]; then
   case "$_T" in /*) _BIN="$_T";; *) _BIN="$(cd "$(dirname "$0")" && pwd)/$_T";; esac
 fi
 SCRIPT="$(cd "$(dirname "$_BIN")" && pwd)/jev_proxy.py"
+# Non-secret routing (JEV_CF_ACCOUNT_ID, ...) comes from autopilot.env, same as under autopilot; never config.json.
+. "$(dirname "$SCRIPT")/../model-setting.sh" && model_export_env
 KEY_FILE="$HOME/.config/jev-cli/gemini_key.txt"
 CF_KEY_FILE="$HOME/.config/jev-cli/cloudflare_key.txt"
 # python3 on Windows is often a Store stub that runs nothing; use the first interpreter that works.
