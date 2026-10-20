@@ -39,6 +39,14 @@ check "nothing running, nothing unreported: 76" "76" "$(rc 2)"
 fresh; call "$D/lane-ui" builder 1 100; live_pid "$D/lane-ui/builder.pid"
 check "a running call that does not finish in time: 75" "75" "$(rc 2)"
 check "…and the message names the lane" "1" "$(w 2 | grep -c 'builder-ui')"
+check "…and with no budget data there is no stalled flag" "0" "$(w 2 | grep -c 'possibly stalled')"
+
+fresh; call "$D/lane-ui" builder 1 3600; live_pid "$D/lane-ui/builder.pid"
+printf '{"slices":[{"id":"ui","owns":["x.js"],"budget_min":30}]}' > .sdlc/features/f/slices.json
+out="$(w 2)"; code=$?
+check "a lane past its slice budget is flagged stalled: still 75" "75" "$code"
+check "…names the lane, the overrun and the remedy" "1" "$(printf '%s' "$out" | grep -c 'over budget, possibly stalled: builder-ui 60m > 30m')"
+check "…without changing the timeout line itself" "1" "$(printf '%s' "$out" | grep -c 'STILL RUNNING: builder-ui')"
 
 fresh; call "$D/lane-ui" builder 1 100; live_pid "$D/lane-ui/builder.pid"
 call "$D/lane-rules" builder 1 100; finish "$D/lane-rules" builder 1 0

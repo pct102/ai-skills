@@ -66,14 +66,20 @@ for (const top of [path.join(fdir, ".oc")]) {
   }
 }
 
+const now = Date.now();
 const sliceRows = (slices || []).map((s) => {
   const st = sliceState[s.id] || {};
+  const mins = st.started ? (now - st.started) / 60000 : 0;
+  const over = st.status === "running" && s.budget_min && mins > s.budget_min;
   return { id: s.id, status: st.status || "pending",
+    minutes: st.started ? +mins.toFixed(1) : 0,
+    budget_min: s.budget_min || null, over_budget: !!over,
     depends: (s.depends || []).join(","), reasons: (st.reasons || []).slice(0, 2) };
 });
 const pending = sliceRows.filter((r) => r.status === "pending").map((r) => r.id);
 const running = sliceRows.filter((r) => r.status === "running").map((r) => r.id);
 const failed = sliceRows.filter((r) => r.status === "failed").map((r) => r.id);
+const stalled = sliceRows.filter((r) => r.over_budget).map((r) => `${r.id} (${r.minutes}m > ${r.budget_min}m)`);
 
 const phase = status.phase || "unknown";
 let next = "";
@@ -83,6 +89,7 @@ else if (phase === "blocked" || phase === "escalated")
 else if (phase === "planned" || phase === "contract")
   next = "work was never begun: report only, do not start it here.";
 else if (failed.length) next = `slices failed (${failed.join(", ")}): they need 'slices reset' before anything else runs.`;
+else if (stalled.length) next = `slices over budget, possibly stalled (${stalled.join(", ")}): read their lane reply/err first, then 'slices reset' if the work is lost. Do not start new work on top of a stalled lane.`;
 else if (running.length) next = `slices running (${running.join(", ")}): check their lanes before starting anything new.`;
 else if (pending.length) next = `resume with the pending slices (${pending.join(", ")}); finished slices must not run again.`;
 else if (phase === "validating") next = "run sdlc-verify to re-check; the last run is summarized above.";
@@ -114,7 +121,7 @@ if (brief.last_run)
 if (sliceRows.length) {
   L.push("slices:");
   for (const r of sliceRows)
-    L.push(`  ${r.id} ${r.status}${r.depends ? ` (depends: ${r.depends})` : ""}${r.reasons.length ? ` — ${r.reasons.join("; ")}` : ""}`);
+    L.push(`  ${r.id} ${r.status}${r.over_budget ? ` OVER BUDGET (${r.minutes}m > ${r.budget_min}m)` : ""}${r.depends ? ` (depends: ${r.depends})` : ""}${r.reasons.length ? ` — ${r.reasons.join("; ")}` : ""}`);
 }
 L.push(inFlight.length ? "in flight (do not start these again, read their lane output):" : "in flight: none observed.");
 for (const w of inFlight) L.push(`  ${w}`);

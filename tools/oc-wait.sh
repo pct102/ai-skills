@@ -40,6 +40,31 @@ scan() {
 }
 actor() { local lane=""; case "$1" in */lane-*) lane=${1##*/lane-} ;; esac; echo "$2${lane:+-$lane}"; }
 
+# A running lane past its slice budget is probably stalled, not just slow. Report-only:
+# the wait contract (exit codes, FINISHED/RUNNING/DEAD) never changes, so nothing is killed
+# and no result is invented. The leader reads the marker and decides (usually: read the
+# lane's reply/err, then `sdlc-slices reset` if the work is lost).
+slice_budget() { # <lane-id> -> budget_min or empty
+  node -e 'let d={}; try { d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")) } catch (e) { process.exit(0) }
+    const s = (d.slices || []).find((x) => x && x.id === process.argv[2]);
+    if (s && Number.isFinite(+s.budget_min)) console.log(s.budget_min);' \
+    ".sdlc/features/$feature/slices.json" "$1" 2>/dev/null || true
+}
+stalled_note() { # prints "" or " (over budget, possibly stalled: ...)"
+  local s d r n st id b mins out=""
+  while read -r s d r n st; do
+    [ -n "$s" ] || continue
+    case "$d" in */lane-*) id=${d##*/lane-} ;; *) continue ;; esac
+    b=$(slice_budget "$id")
+    [ -n "$b" ] || continue
+    if [ $(( $(date +%s) - st )) -gt $(( b * 60 )) ]; then
+      mins=$(( ($(date +%s) - st) / 60 ))
+      out="${out:+$out, }$(actor "$d" "$r") ${mins}m > ${b}m"
+    fi
+  done <<< "$1"
+  [ -n "$out" ] && printf ' (over budget, possibly stalled: %s)' "$out" || true
+}
+
 waited=0
 while :; do
   rows=$(scan)
@@ -63,12 +88,12 @@ while :; do
       : > "$d/$role-$n.reported"
     done <<< "$ready"
     still=$(printf '%s\n' "$running" | grep -c . || true)
-    [ "$still" -gt 0 ] && echo "(still running: $(printf '%s\n' "$running" | while read -r s d r n st; do actor "$d" "$r"; done | paste -sd, -). Call oc-wait.sh again.)"
+    [ "$still" -gt 0 ] && echo "(still running: $(printf '%s\n' "$running" | while read -r s d r n st; do actor "$d" "$r"; done | paste -sd, -). Call oc-wait.sh again$(stalled_note "$running").)"
     exit "$rc"
   fi
   if [ -z "$running" ]; then echo "nothing is running and nothing is unreported"; exit 76; fi
   if [ "$waited" -ge "$limit" ]; then
-    echo "STILL RUNNING: $(printf '%s\n' "$running" | while read -r s d r n st; do echo "$(actor "$d" "$r") (${n}, $(( $(date +%s) - st ))s)"; done | paste -sd, -)"
+    echo "STILL RUNNING: $(printf '%s\n' "$running" | while read -r s d r n st; do echo "$(actor "$d" "$r") (${n}, $(( $(date +%s) - st ))s)"; done | paste -sd, -)$(stalled_note "$running")"
     echo "Call oc-wait.sh again. Do not end your turn while calls are pending."
     exit 75
   fi

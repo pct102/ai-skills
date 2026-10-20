@@ -65,4 +65,21 @@ check "next names the running slice" "1" "$(out --feature f | grep -c 'next: sli
 check "--json is valid" "building" "$(out --feature f --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 check "…with the same next step" "True" "$(out --feature f --json | python3 -c 'import json,sys; print("p2" in json.load(sys.stdin)["next"])')"
 
+# A running slice past its budget_min is stalled, not just slow: the brief says
+# so and tells the leader to read the lane before resetting it.
+mkdir -p .sdlc/features/f2/.oc/slices
+cat > .sdlc/features/f2/status.json <<'JSON'
+{"feature":"f2","phase":"building","budget":2,"repair_iterations":0,"blocked_reason":"","approvals":{},"last_run":null}
+JSON
+cat > .sdlc/features/f2/slices.json <<'JSON'
+{"slices":[{"id":"p9","owns":["z.js"],"budget_min":30}]}
+JSON
+python3 - .sdlc/features/f2/.oc/slices/state.json <<'PY'
+import json, sys, time
+json.dump({"p9": {"status": "running", "started": int(time.time() * 1000) - 3600000}}, open(sys.argv[1], "w"))
+PY
+check "an over-budget running slice is flagged, not hidden" "1" "$(out --feature f2 | grep -c 'p9 running OVER BUDGET (60m > 30m)')"
+check "…and next says read-then-reset, not start-more-work" "1" "$(out --feature f2 | grep -c 'possibly stalled (p9')"
+check "…and --json carries over_budget" "True" "$(out --feature f2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["slices"][0]["over_budget"])')"
+
 echo "passed=$pass failed=$fail"
