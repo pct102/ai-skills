@@ -24,9 +24,9 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/proj/.sdlc"
 
 # project file wins over the shared one; env wins over both
-printf '%s\n' "JEV_BACKEND=clef" "JEV_CF_ACCOUNT_ID=project-acct" "JEV_API_KEY=should-never-export" > "$T/proj/.sdlc/autopilot.env"
+printf '%s\n' "JEV_BACKEND=clef" "JEV_CF_ACCOUNT_ID=project-acct" "JEV_MODEL=project-model" "JEV_API_KEY=should-never-export" > "$T/proj/.sdlc/autopilot.env"
 out=$(cd "$T/proj" && unset JEV_BACKEND JEV_MODEL JEV_CF_ACCOUNT_ID JEV_ENDPOINT JEV_PROVIDER JEV_TIMEOUT JEV_PROXY_PORT JEV_API_KEY CLOUDFLARE_API_KEY 2>/dev/null; . "$MS" && model_export_env && printf '%s|%s|%s|%s' "${JEV_BACKEND:-unset}" "${JEV_CF_ACCOUNT_ID:-unset}" "${JEV_API_KEY:-unset}" "${JEV_MODEL:-unset}")
-check "project file exports backend + account id, never the key" "clef|project-acct|unset|unset" "$out"
+check "project file exports backend + account id + model, never the key" "clef|project-acct|unset|project-model" "$out"
 
 # a real exported variable wins over files
 out=$(cd "$T/proj" && unset JEV_BACKEND JEV_MODEL JEV_CF_ACCOUNT_ID JEV_ENDPOINT JEV_PROVIDER JEV_TIMEOUT JEV_PROXY_PORT JEV_API_KEY CLOUDFLARE_API_KEY 2>/dev/null; export JEV_BACKEND=gemini; . "$MS" && model_export_env && printf '%s|%s' "${JEV_BACKEND:-unset}" "${JEV_CF_ACCOUNT_ID:-unset}")

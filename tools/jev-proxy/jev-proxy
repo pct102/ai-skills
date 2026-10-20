@@ -3,7 +3,14 @@
 
 PID_FILE="$HOME/.config/jev-cli/proxy.pid"
 LOG_FILE="$HOME/.config/jev-cli/proxy.log"
-SCRIPT="$(cd "$(dirname "$0")" && pwd)/jev_proxy.py"
+# Resolve symlinks (e.g. ~/.local/bin/jev-proxy -> this repo) so the proxy code
+# always comes from the repo, never from a stale copy next to the link.
+_BIN="$0"
+if [ -L "$_BIN" ]; then
+  _T=$(readlink "$_BIN")
+  case "$_T" in /*) _BIN="$_T";; *) _BIN="$(cd "$(dirname "$0")" && pwd)/$_T";; esac
+fi
+SCRIPT="$(cd "$(dirname "$_BIN")" && pwd)/jev_proxy.py"
 KEY_FILE="$HOME/.config/jev-cli/gemini_key.txt"
 CF_KEY_FILE="$HOME/.config/jev-cli/cloudflare_key.txt"
 # python3 on Windows is often a Store stub that runs nothing; use the first interpreter that works.
