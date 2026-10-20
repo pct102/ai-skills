@@ -26,13 +26,16 @@ standard text-generation ones (300 req/min); Clef is not on the paid-models list
 When the cap is hit the API errors and the proxy degrades to `JEV UNAVAILABLE` like any
 other backend failure, so autopilot keeps running.
 
-Setup (secrets never live in the repo — same rule as the Gemini key):
+Setup (secrets never live in the repo — same rule as the Gemini key). No env export
+is required; pick one token home and one account-id home:
 
-1. Get an account id (Cloudflare dashboard URL) and create an API token with Workers AI
-   read permission (`jev-proxy set-cf-key <token>` stores it in
-   `~/.config/jev-cli/cloudflare_key.txt`, mode 600 — or export `CLOUDFLARE_API_TOKEN`).
-2. Set the account id: `export JEV_CF_ACCOUNT_ID=<id>`, or `"cf_account_id"` in
-   `~/.config/jev-cli/config.json`.
+1. Token, either `jev-proxy set-cf-key <token>` (stored in
+   `~/.config/jev-cli/cloudflare_key.txt`, mode 600 — recommended, survives
+   restarts with nothing in your shell) or `export CLOUDFLARE_API_TOKEN=<token>`
+   in your shell. Get the token from the Cloudflare dashboard (Workers AI read).
+2. Account id (not a secret): `export JEV_CF_ACCOUNT_ID=<id>`, or `"cf_account_id"`
+   in `~/.config/jev-cli/config.json`, or `JEV_CF_ACCOUNT_ID` in `autopilot.env`
+   (it is git-ignored and autopilot exports non-secret `JEV_*` keys to the run).
 3. Set `"backend": "clef"` in `~/.config/jev-cli/config.json` (or `JEV_BACKEND=clef`).
    `JEV_MODEL` accepts any `@cf/...` model id; anything else falls back to clef-flash.
 4. `tools/jev-proxy/jev-proxy restart` — it prints the backend it is really using.

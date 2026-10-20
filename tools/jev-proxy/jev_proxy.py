@@ -36,7 +36,6 @@ DEFAULTS = {
     "model": "gemini-2.5-flash",
     "api_key": "",
     "cf_account_id": "",
-    "cf_api_key": "",
     "timeout": 60,
 }
 
@@ -76,8 +75,10 @@ def _gemini_key():
 
 
 def _cf_key():
-    # Secrets never live in the repo: env wins, else a 0600 file outside it.
-    key = (os.environ.get("CLOUDFLARE_API_KEY") or "").strip()
+    # One name only: CLOUDFLARE_API_TOKEN, matching Cloudflare's own docs.
+    # Never from the repo, never from autopilot.env — env here means your shell,
+    # else a 0600 file outside the repo.
+    key = (os.environ.get("CLOUDFLARE_API_TOKEN") or "").strip()
     if key:
         return key
     try:
@@ -97,16 +98,17 @@ def load_config():
             log(f"ignoring {CONFIG_FILE}: {e}")
     for env, field in (("JEV_BACKEND", "backend"), ("JEV_BASE_URL", "base_url"),
                        ("JEV_MODEL", "model"), ("JEV_API_KEY", "api_key"),
-                       ("JEV_CF_ACCOUNT_ID", "cf_account_id"), ("JEV_CF_API_KEY", "cf_api_key"),
+                       ("JEV_CF_ACCOUNT_ID", "cf_account_id"),
                        ("JEV_TIMEOUT", "timeout")):
         val = os.environ.get(env)
         if val:
             cfg[field] = int(val) if field == "timeout" and val.isdigit() else val
     # Per-backend credential fallback. Never cross-contaminate: a Gemini key must
-    # not end up in a Cloudflare Authorization header or vice versa.
+    # not end up in a Cloudflare Authorization header or vice versa. Tokens are
+    # deliberately NOT read from autopilot.env or config.json: env or key file only.
     if cfg.get("backend") == "gemini" and not cfg.get("api_key"):
         cfg["api_key"] = _gemini_key()
-    if cfg.get("backend") == "clef" and not cfg.get("cf_api_key"):
+    if cfg.get("backend") == "clef":
         cfg["cf_api_key"] = _cf_key()
     return cfg
 
@@ -411,7 +413,7 @@ class JevProxyHandler(http.server.BaseHTTPRequestHandler):
         if cfg["backend"] == "clef" and (not cfg.get("cf_account_id") or not cfg.get("cf_api_key")):
             self._reply(401, {"ok": False, "error":
                               "Cloudflare credentials are not set. Set JEV_CF_ACCOUNT_ID and "
-                              f"JEV_CF_API_KEY, or save the token to {CF_KEY_FILE} (mode 600)."})
+                              "CLOUDFLARE_API_TOKEN, or save the token with `jev-proxy set-cf-key`."})
             return
 
         length = int(self.headers.get("Content-Length", 0) or 0)
