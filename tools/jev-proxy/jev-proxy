@@ -176,7 +176,16 @@ if not tok:
     print("\n-> no token: run `jev-proxy set-cf-key <token>` (or export CLOUDFLARE_API_TOKEN)")
     sys.exit(1)
 
+import re
+if acct and not re.fullmatch(r"[0-9a-f]{32}", acct):
+    print(f"\n-> account id is {len(acct)} chars; Cloudflare account ids are exactly 32 hex chars. Re-copy it:")
+    print("   export JEV_CF_ACCOUNT_ID=<32-char id>  (dashboard URL: dash.cloudflare.com/<account id>/...)")
+    sys.exit(1)
+
+# User tokens verify at /user/tokens/verify; account-owned tokens (cfat_...) only at /accounts/<id>/tokens/verify.
 status, body = call("https://api.cloudflare.com/client/v4/user/tokens/verify", tok)
+if not body.get("success") and acct:
+    status, body = call(f"https://api.cloudflare.com/client/v4/accounts/{acct}/tokens/verify", tok)
 res = (body or {}).get("result") or {}
 err = ((body or {}).get("errors") or [{}])[0]
 print(f"token verify : HTTP {status} success={body.get('success')} id={res.get('id')} status={res.get('status')}"
