@@ -80,15 +80,34 @@ case "$1" in
     ;;
 
   set-cf-key)
-    if [ -z "$2" ]; then
-      echo "Usage: jev-proxy set-cf-key <CLOUDFLARE_API_TOKEN>"
-      echo "The account id is not a secret: set JEV_CF_ACCOUNT_ID or put cf_account_id in ~/.config/jev-cli/config.json."
+    # With no argument, read the token from stdin without echo: a dashboard
+    # token is long, easy to truncate in a clipboard, and belongs in neither
+    # the shell history nor another program's argv.
+    CF_TOK="${2:-}"
+    if [ -z "$CF_TOK" ]; then
+      printf 'Paste the Cloudflare API token, then press Enter (input is hidden): '
+      if [ -t 0 ]; then
+        IFS= read -rs CF_TOK
+      else
+        IFS= read -r CF_TOK
+      fi
+      printf '\n'
+    fi
+    CF_TOK=$(printf '%s' "$CF_TOK" | tr -d '[:space:]')
+    case "$CF_TOK" in
+      "") echo "No token given. Nothing saved." >&2; exit 1 ;;
+      *[!A-Za-z0-9_-]*) echo "That does not look like a token (unexpected characters). Nothing saved." >&2; exit 1 ;;
+    esac
+    if [ "${#CF_TOK}" -lt 20 ]; then
+      echo "That token is only ${#CF_TOK} characters; a real one is much longer. Nothing saved." >&2
       exit 1
     fi
     mkdir -p "$HOME/.config/jev-cli"
-    echo "$2" > "$CF_KEY_FILE"
+    umask 077
+    printf '%s\n' "$CF_TOK" > "$CF_KEY_FILE"
     chmod 600 "$CF_KEY_FILE"
-    echo "Cloudflare API token saved to $CF_KEY_FILE."
+    echo "Cloudflare API token saved to $CF_KEY_FILE (${#CF_TOK} characters)."
+    echo "Next: jev-proxy doctor"
     ;;
 
   doctor)
