@@ -7,6 +7,8 @@ Two transports, picked by JEV_BACKEND (env, else ~/.config/jev-cli/config.json, 
   openai  any OpenAI-compatible /chat/completions server
           (llama-server, Ollama, OpenRouter, OpenCode Zen, Gemini's /v1beta/openai, ...)
   gemini  Google's v1beta generateContent API
+  clef    Cloudflare Workers AI decision models (@cf/cloudflare/clef-flash, ...),
+          which speak the same state + typed-questions protocol as Jev
 
 Both are driven from the same config so the rest of the system never changes:
   tools/jev-proxy/jev-proxy {start|stop|restart|status|logs}
@@ -26,12 +28,15 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".config" / "jev-cli"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 KEY_FILE = CONFIG_DIR / "gemini_key.txt"
+CF_KEY_FILE = CONFIG_DIR / "cloudflare_key.txt"
 
 DEFAULTS = {
     "backend": "gemini",
     "base_url": "http://127.0.0.1:8080/v1",
     "model": "gemini-2.5-flash",
     "api_key": "",
+    "cf_account_id": "",
+    "cf_api_key": "",
     "timeout": 60,
 }
 
@@ -70,6 +75,17 @@ def _gemini_key():
         return ""
 
 
+def _cf_key():
+    # Secrets never live in the repo: env wins, else a 0600 file outside it.
+    key = (os.environ.get("CLOUDFLARE_API_KEY") or "").strip()
+    if key:
+        return key
+    try:
+        return CF_KEY_FILE.read_text().strip() if CF_KEY_FILE.exists() else ""
+    except OSError:
+        return ""
+
+
 def load_config():
     """env > config.json > defaults. Restarts (autopilot does one) keep the local backend."""
     cfg = dict(DEFAULTS)
@@ -80,12 +96,18 @@ def load_config():
         except (OSError, ValueError) as e:
             log(f"ignoring {CONFIG_FILE}: {e}")
     for env, field in (("JEV_BACKEND", "backend"), ("JEV_BASE_URL", "base_url"),
-                       ("JEV_MODEL", "model"), ("JEV_API_KEY", "api_key"), ("JEV_TIMEOUT", "timeout")):
+                       ("JEV_MODEL", "model"), ("JEV_API_KEY", "api_key"),
+                       ("JEV_CF_ACCOUNT_ID", "cf_account_id"), ("JEV_CF_API_KEY", "cf_api_key"),
+                       ("JEV_TIMEOUT", "timeout")):
         val = os.environ.get(env)
         if val:
             cfg[field] = int(val) if field == "timeout" and val.isdigit() else val
-    if not cfg.get("api_key"):
+    # Per-backend credential fallback. Never cross-contaminate: a Gemini key must
+    # not end up in a Cloudflare Authorization header or vice versa.
+    if cfg.get("backend") == "gemini" and not cfg.get("api_key"):
         cfg["api_key"] = _gemini_key()
+    if cfg.get("backend") == "clef" and not cfg.get("cf_api_key"):
+        cfg["cf_api_key"] = _cf_key()
     return cfg
 
 
@@ -190,7 +212,76 @@ def call_gemini(state, questions, cfg):
     }
 
 
-BACKENDS = {"openai": call_openai, "gemini": call_gemini}
+CLEF_DEFAULT_MODEL = "@cf/cloudflare/clef-flash"
+
+
+def effective_model(cfg):
+    """The model that will actually be called. Clef ignores non-Cloudflare names."""
+    if cfg.get("backend") == "clef" and not (cfg.get("model") or "").startswith("@cf/"):
+        return CLEF_DEFAULT_MODEL
+    return cfg.get("model")
+
+
+def clef_request_body(state, questions, model):
+    """Clef speaks the same state + typed-questions protocol as Jev, so the jev
+    CLI's payload passes through almost unchanged; the question text becomes the
+    `instructions` field Clef decides from. Criteria ride along verbatim."""
+    short = (model or "").split("/")[-1] or "clef-flash"
+    qs = {}
+    for key, question in (questions or {}).items():
+        q = dict(question or {})
+        q.setdefault("instructions", q.get("question") or q.get("prompt") or key)
+        qs[key] = q
+    return {"model": short, "state": state, "questions": qs}
+
+
+def clef_parse_answers(data):
+    """Accept the Workers AI envelope, the bare answers object, or a JSON string."""
+    if not isinstance(data, dict):
+        return {}
+    result = data.get("result", data)
+    if not isinstance(result, dict):
+        return {}
+    answers = result.get("answers", result)
+    if isinstance(answers, str):
+        return parse_answers(answers)
+    return answers if isinstance(answers, dict) else {}
+
+
+def call_clef(state, questions, cfg):
+    model = effective_model(cfg)
+    account = (cfg.get("cf_account_id") or "").strip()
+    token = (cfg.get("cf_api_key") or "").strip()
+    if not account or not token:
+        raise ValueError("clef backend needs an account id and an API token")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+    data = _post_json(url, clef_request_body(state, questions, model),
+                      {"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+                      cfg["timeout"])
+    result = data.get("result", {}) if isinstance(data, dict) else {}
+    usage = result.get("usage") or {} if isinstance(result, dict) else {}
+    return {
+        "model": model,
+        "answers": clef_parse_answers(data),
+        "usage": {
+            # Clef bills input only; the endpoint may or may not report usage.
+            "input_tokens": usage.get("prompt_tokens", usage.get("input_tokens", 0)),
+            "output_tokens": usage.get("completion_tokens", usage.get("output_tokens", 0)),
+        },
+    }
+
+
+BACKENDS = {"openai": call_openai, "gemini": call_gemini, "clef": call_clef}
+
+
+def backend_where(cfg):
+    """Human-readable upstream for logs and /health. Never includes secrets."""
+    if cfg["backend"] == "openai":
+        return cfg["base_url"]
+    if cfg["backend"] == "clef":
+        account = (cfg.get("cf_account_id") or "").strip()
+        return f"api.cloudflare.com (account …{account[-4:]})" if account else "api.cloudflare.com"
+    return "google"
 
 
 def parse_answers(text):
@@ -297,8 +388,8 @@ class JevProxyHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         cfg = load_config()
         if self.path in ("/health", "/api/v1/health"):
-            self._reply(200, {"status": "ok", "backend": cfg["backend"], "model": cfg["model"],
-                              "base_url": cfg["base_url"] if cfg["backend"] == "openai" else "google"})
+            self._reply(200, {"status": "ok", "backend": cfg["backend"], "model": effective_model(cfg),
+                              "base_url": backend_where(cfg)})
         elif self.path in ("/api/v1/credits", "/v1/credits"):
             self._reply(200, {"creditsRemaining": 999999, "paidInputTokensRemaining": 999999999,
                               "freeRunsRemaining": 999999})
@@ -316,6 +407,11 @@ class JevProxyHandler(http.server.BaseHTTPRequestHandler):
             self._reply(401, {"ok": False, "error":
                               f"GEMINI_API_KEY is not set. Save a free key to {KEY_FILE} "
                               f"or set JEV_BACKEND=openai with a local JEV_BASE_URL."})
+            return
+        if cfg["backend"] == "clef" and (not cfg.get("cf_account_id") or not cfg.get("cf_api_key")):
+            self._reply(401, {"ok": False, "error":
+                              "Cloudflare credentials are not set. Set JEV_CF_ACCOUNT_ID and "
+                              f"JEV_CF_API_KEY, or save the token to {CF_KEY_FILE} (mode 600)."})
             return
 
         length = int(self.headers.get("Content-Length", 0) or 0)
@@ -337,7 +433,7 @@ class JevProxyHandler(http.server.BaseHTTPRequestHandler):
                         {"ok": False, "error": f"upstream {e.code}: {detail[:400]}"})
             return
         except Exception as e:  # connection refused when llama-server is down, timeouts, ...
-            log(f"POST {self.path} - 503 {cfg['base_url']}: {type(e).__name__}: {e}")
+            log(f"POST {self.path} - 503 {backend_where(cfg)}: {type(e).__name__}: {e}")
             self._reply(503, {"ok": False, "error": f"backend unreachable ({cfg['backend']}): {e}"})
             return
 
@@ -364,6 +460,8 @@ def run():
     port = int(os.environ.get("JEV_PROXY_PORT", "8765"))
     if cfg["backend"] == "openai":
         where = f"{cfg['base_url']} ({cfg['model']})"
+    elif cfg["backend"] == "clef":
+        where = f"Cloudflare Workers AI ({effective_model(cfg)}, key {'set' if cfg.get('cf_api_key') else 'MISSING'})"
     else:
         where = f"Google Gemini ({cfg['model']}, key {'set' if cfg['api_key'] else 'MISSING'})"
     log(f"listening on http://127.0.0.1:{port}/v1/systemone -> {where}")

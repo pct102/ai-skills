@@ -5,6 +5,7 @@ PID_FILE="$HOME/.config/jev-cli/proxy.pid"
 LOG_FILE="$HOME/.config/jev-cli/proxy.log"
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/jev_proxy.py"
 KEY_FILE="$HOME/.config/jev-cli/gemini_key.txt"
+CF_KEY_FILE="$HOME/.config/jev-cli/cloudflare_key.txt"
 # python3 on Windows is often a Store stub that runs nothing; use the first interpreter that works.
 PY=python3; "$PY" -c "" 2>/dev/null || PY=python
 
@@ -71,12 +72,24 @@ case "$1" in
     echo "Gemini API key saved to $KEY_FILE."
     ;;
 
+  set-cf-key)
+    if [ -z "$2" ]; then
+      echo "Usage: jev-proxy set-cf-key <CLOUDFLARE_API_TOKEN>"
+      echo "The account id is not a secret: set JEV_CF_ACCOUNT_ID or put cf_account_id in ~/.config/jev-cli/config.json."
+      exit 1
+    fi
+    mkdir -p "$HOME/.config/jev-cli"
+    echo "$2" > "$CF_KEY_FILE"
+    chmod 600 "$CF_KEY_FILE"
+    echo "Cloudflare API token saved to $CF_KEY_FILE."
+    ;;
+
   logs)
     tail -n 30 -f "$LOG_FILE"
     ;;
 
   *)
-    echo "Usage: jev-proxy {start|stop|restart|status|set-key <KEY>|logs}"
+    echo "Usage: jev-proxy {start|stop|restart|status|set-key <KEY>|set-cf-key <TOKEN>|logs}"
     exit 1
     ;;
 esac

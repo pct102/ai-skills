@@ -9,6 +9,36 @@ Two backends, same API surface:
 |---|---|---|
 | `openai` | any OpenAI-compatible `/chat/completions` | just `base_url` (+ key if remote) |
 | `gemini` | Google `v1beta generateContent` | a free Google AI Studio key |
+| `clef` | Cloudflare Workers AI decision models | a Cloudflare account id + API token (see below) |
+
+## Cloudflare Clef backend (recommended: purpose-built, generous free tier)
+
+Clef (`@cf/cloudflare/clef-flash`, 9B multimodal) speaks the same state + typed-questions
+protocol as Jev (`noul` / `choice` / `score` with per-option probabilities), so the proxy
+mostly forwards the jev CLI's payload and reads `answers` back — no prompt engineering,
+no constrained-decoding tricks, no invented-option filtering needed downstream.
+
+Pricing at the time of writing (Workers free plan, 10,000 Neurons/day free, resets 00:00 UTC):
+clef-flash costs 3455 neurons per M input tokens and nothing for output, i.e. roughly
+**one neuron per jev-check call** — on the order of ten thousand judgments a day before
+hitting the cap, versus 20/day on the Gemini free tier. Per-minute limits are the
+standard text-generation ones (300 req/min); Clef is not on the paid-models list.
+When the cap is hit the API errors and the proxy degrades to `JEV UNAVAILABLE` like any
+other backend failure, so autopilot keeps running.
+
+Setup (secrets never live in the repo — same rule as the Gemini key):
+
+1. Get an account id (Cloudflare dashboard URL) and create an API token with Workers AI
+   read permission (`jev-proxy set-cf-key <token>` stores it in
+   `~/.config/jev-cli/cloudflare_key.txt`, mode 600 — or export `CLOUDFLARE_API_TOKEN`).
+2. Set the account id: `export JEV_CF_ACCOUNT_ID=<id>`, or `"cf_account_id"` in
+   `~/.config/jev-cli/config.json`.
+3. Set `"backend": "clef"` in `~/.config/jev-cli/config.json` (or `JEV_BACKEND=clef`).
+   `JEV_MODEL` accepts any `@cf/...` model id; anything else falls back to clef-flash.
+4. `tools/jev-proxy/jev-proxy restart` — it prints the backend it is really using.
+
+Precedence is env > `~/.config/jev-cli/config.json` > built-in default. Keys are picked
+per backend and never cross over: a Gemini key is never sent to Cloudflare and vice versa.
 
 Note: `opencode/jev-1.13` (OpenCode Zen) exposes an OpenAI-compatible endpoint, so this
 proxy could point at it — but a direct call returns 401 without an OpenCode Zen login
