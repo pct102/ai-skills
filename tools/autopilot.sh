@@ -68,6 +68,10 @@ export OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD   # opencode 2.x clients read
 # "Access external directory /tmp". The server's own permission rule settles it for every client. OC_AUTO=0 turns it off.
 . "$AI_SKILLS_HOME/tools/model-setting.sh"
 oc_auto=$(model_setting OC_AUTO); [ "${oc_auto:-1}" = 1 ] && export OPENCODE_PERMISSION=${OPENCODE_PERMISSION:-'{"*":"allow","external_directory":"allow","doom_loop":"allow"}'}
+# Non-secret Jev routing (backend, model, account id, endpoint) comes from the same
+# files so a project can pin e.g. JEV_BACKEND=clef; the proxy daemon started below
+# and the leader both inherit it. Provider keys are never exported here by design.
+model_export_env
 opencode serve --port "$port" >.sdlc/opencode-server.log 2>&1 &
 server_pid=$!
 trap 'kill $server_pid 2>/dev/null || true' EXIT
