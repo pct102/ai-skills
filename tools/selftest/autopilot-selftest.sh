@@ -130,6 +130,10 @@ run() { # name, env assignments..., then autopilot args
 }
 main_calls() { grep -c '/feature-autopilot' "$T/$1/calls.log"; }
 diagram_calls() { grep -c '/feature-diagrams' "$T/$1/calls.log"; }
+# A logged call can span several lines (the RESUME prompt carries the journal
+# brief), so the Nth call is everything from its opening line to the next call.
+# (The log holds "$*", not the command name, so lines open with "-p", not "claude".)
+nth_call() { awk -v n="$2" '/^-p \/feature-autopilot/ {c++} c==n' "$T/$1/calls.log"; }
 
 run a PHASE=accepted bash "$AP" "Make a thing"
 check "accepted + diagrams missing: the diagrams pass runs" "1" "$(diagram_calls a)"
@@ -166,8 +170,8 @@ check "a short request is kept whole" "make-a-thing" "$(grep -o 'feature name: [
 # Claude stopped early: a fresh Claude resumes from disk, a bounded number of times
 run h PHASES=building,accepted bash "$AP" --no-diagrams "Make a thing"
 check "stopped in building, then accepted: resumed once (2 main calls)" "2" "$(main_calls h)"
-check "…and the second call is a RESUME that does not repeat the request" "1" "$(grep '/feature-autopilot' $T/h/calls.log | tail -1 | grep -c 'RESUME')"
-check "…and the RESUME carries the git rule too" "1" "$(grep '/feature-autopilot' $T/h/calls.log | tail -1 | grep -c 'no git checkout -b')"
+check "…and the second call is a RESUME that does not repeat the request" "1" "$(nth_call h 2 | grep -c 'RESUME')"
+check "…and the RESUME carries the git rule too" "1" "$(nth_call h 2 | grep -c 'no git checkout -b')"
 run i PHASES=building AUTOPILOT_RESUMES=2 bash "$AP" --no-diagrams "Make a thing"
 check "never finishing: 1 run + 2 resumes, then it stops" "3" "$(main_calls i)"
 check "…and says how to continue by hand" "1" "$(grep -c 'autopilot --resume make-a-thing' $T/i/out.log)"

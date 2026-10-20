@@ -424,7 +424,7 @@ while :; do
   fi
   tries=$((tries + 1))
   echo "autopilot: Claude stopped while the feature was in phase '$p'; resuming ($tries of ${AUTOPILOT_RESUMES:-3})..."
-  claude_run "/feature-autopilot feature name: $feat. RESUME: the previous run stopped before the feature was accepted. Do not start over and do not ask the user anything. Read .sdlc/features/$feat (spec.md, plan.md, acceptance.yaml, status.json, decisions.md, trace.jsonl and sdlc-slices.mjs status $feat if slices.json exists, and the newest builder-N.md and qa-N.md in .oc/ and in each .oc/lane-*/) and compare with the files on disk, then continue from the first step that is not done. A builder or QA call (or several lanes) may have finished after the run stopped: read its output file before sending the work again. $git_rule"
+  claude_run "/feature-autopilot feature name: $feat. RESUME: the previous run stopped before the feature was accepted. Do not start over and do not ask the user anything. Start from this journal brief — it is the source of truth for where the run stands, generated from status.json, the slice plan and state, lanes in flight, the trace and prior jev answers. Do not re-derive what it lists; open only the evidence it names, then continue from the step it names as next:$(node "$AI_SKILLS_HOME/tools/sdlc-resume-context.mjs" --feature "$feat" 2>/dev/null || true) A builder or QA call (or several lanes) may have finished after the run stopped: read its output file before sending the work again. $git_rule"
 done
 node "$AI_SKILLS_HOME/tools/sdlc-trace.mjs" --feature "$feat" --render || true
 
