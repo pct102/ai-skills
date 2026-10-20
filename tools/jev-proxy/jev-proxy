@@ -91,12 +91,121 @@ case "$1" in
     echo "Cloudflare API token saved to $CF_KEY_FILE."
     ;;
 
+  doctor)
+    # One command that answers "why is Jev not answering?" for every backend.
+    # Never prints a secret: only lengths, ids and Cloudflare's own error codes.
+    "$PY" - "$HOME/.config/jev-cli" <<'PY'
+import json, os, sys, urllib.error, urllib.request
+from pathlib import Path
+
+cfgdir = Path(sys.argv[1])
+cfg = {}
+try:
+    cfg = json.loads((cfgdir / "config.json").read_text())
+except Exception:
+    pass
+
+def env(key, field, default=""):
+    return (os.environ.get(key) or cfg.get(field) or default).strip()
+
+def key(file_name, envs):
+    for e in envs:
+        v = (os.environ.get(e) or "").strip()
+        if v:
+            return v, f"env {e}"
+    p = cfgdir / file_name
+    try:
+        v = p.read_text().strip()
+        if v:
+            return v, str(p)
+    except OSError:
+        pass
+    return "", "missing"
+
+def call(url, token, data=None):
+    hdr = {"Authorization": f"Bearer {token}"}
+    if data is not None:
+        hdr["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=None if data is None else json.dumps(data).encode(),
+                                 headers=hdr, method="GET" if data is None else "POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode() or "{}")
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"_err": f"{type(e).__name__}: {e}"}
+
+backend = env("JEV_BACKEND", "backend", "gemini")
+print(f"backend      : {backend}")
+print(f"model        : {env('JEV_MODEL', 'model') or '(default)'}")
+
+if backend != "clef":
+    p = cfgdir / "gemini_key.txt"
+    k, src = key("gemini_key.txt", ["GEMINI_API_KEY"])
+    print(f"gemini key   : {'set' if k else 'MISSING'} (len {len(k)}, from {src})")
+    sys.exit(0 if k else 1)
+
+tok, src = key("cloudflare_key.txt", ["CLOUDFLARE_API_TOKEN"])
+acct = env("JEV_CF_ACCOUNT_ID", "cf_account_id")
+print(f"cf token     : {'set' if tok else 'MISSING'} (len {len(tok)}, from {src})")
+print(f"cf account   : {acct or 'MISSING'}")
+if not tok:
+    print("\n-> no token: run `jev-proxy set-cf-key <token>` (or export CLOUDFLARE_API_TOKEN)")
+    sys.exit(1)
+
+status, body = call("https://api.cloudflare.com/client/v4/user/tokens/verify", tok)
+res = (body or {}).get("result") or {}
+err = ((body or {}).get("errors") or [{}])[0]
+print(f"token verify : HTTP {status} success={body.get('success')} id={res.get('id')} status={res.get('status')}"
+      + ("" if body.get("success") else f"  error={err.get('code')} {err.get('message')}"))
+if not body.get("success"):
+    print("\n-> the token is not valid. It was rolled, deleted, or pasted truncated.")
+    print("   Create/copy a fresh token in the dashboard, then: jev-proxy set-cf-key <token>")
+    sys.exit(1)
+
+if not acct:
+    print("\n-> no account id: set JEV_CF_ACCOUNT_ID (dashboard URL segment) and retry")
+    sys.exit(1)
+
+status, body = call(f"https://api.cloudflare.com/client/v4/accounts/{acct}", tok)
+if body.get("success"):
+    print(f"account read : HTTP {status} name={(body.get('result') or {}).get('name')!r}")
+else:
+    err = ((body or {}).get("errors") or [{}])[0]
+    print(f"account read : HTTP {status} error={err.get('code')} {err.get('message')}")
+    print("\n-> the token does not reach this account. Check the token's Account Resources,")
+    print("   or that the account id is the one the token was created under.")
+    sys.exit(1)
+
+model = env("JEV_MODEL", "model") or "@cf/cloudflare/clef-flash"
+if not model.startswith("@cf/"):
+    model = "@cf/cloudflare/clef-flash"
+status, body = call(f"https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}", tok,
+                    {"model": model.split("/")[-1], "state": "connectivity check",
+                     "questions": {"ok": {"type": "noul", "instructions": "Is this a test?"}}})
+if body.get("success"):
+    ans = ((body.get("result") or {}).get("answers") or {}).get("ok")
+    print(f"model call   : HTTP {status} OK answers={list(((body.get('result') or {}).get('answers') or {}))}")
+else:
+    err = ((body or {}).get("errors") or [{}])[0]
+    print(f"model call   : HTTP {status} error={err.get('code')} {err.get('message')}")
+    print("\n-> credentials are good but the model call failed. That error code is Cloudflare's answer;")
+    print("   check the model id, the account's Workers AI quota, and the service status.")
+    sys.exit(1)
+print("\nall checks passed.")
+PY
+    ;;
+
   logs)
     tail -n 30 -f "$LOG_FILE"
     ;;
 
   *)
-    echo "Usage: jev-proxy {start|stop|restart|status|set-key <KEY>|set-cf-key <TOKEN>|logs}"
+    echo "Usage: jev-proxy {start|stop|restart|status|set-key <KEY>|set-cf-key <TOKEN>|doctor|logs}"
     exit 1
     ;;
 esac
