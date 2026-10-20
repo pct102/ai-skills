@@ -31,6 +31,7 @@ bash tools/link-skills.sh --hook   # --hook re-links after every git pull (new s
 .sdlc/claude/
 .sdlc/features/*/.oc/
 .sdlc/features/*/trace.*
+.sdlc/features/*/jev-ledger.jsonl
 .sdlc/features/*/evidence/
 .sdlc/features/*/evidence.json
 .sdlc/features/*/status.json

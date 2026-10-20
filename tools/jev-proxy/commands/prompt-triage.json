@@ -1,0 +1,19 @@
+{
+  "name": "prompt-triage",
+  "questions": {
+    "complexity": {
+      "type": "score",
+      "criteria": ["trivial", "simple", "moderate", "complex", "very_complex"]
+    },
+    "task_type": {
+      "type": "choice",
+      "criteria": {
+        "code": "Write or generate new code",
+        "debug": "Debug or fix a bug",
+        "explain": "Explain or analyze code/concept",
+        "refactor": "Refactor or improve existing code",
+        "other": "Other task"
+      }
+    }
+  }
+}

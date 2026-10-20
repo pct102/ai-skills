@@ -2,6 +2,10 @@
 
 Use Jev before a human-facing question only when the next action is a bounded decision.
 
+## Versioned commands
+
+The exact wording leaders and QA send lives in `tools/jev-proxy/commands/*.json` (reviewable, tunable, reusable as few-shot context) and is invoked with `tools/jev-check.sh <f> --command <name> "<state>" [VAR=val ...]`. Every call is appended to `.sdlc/features/<f>/jev-ledger.jsonl` with its question hash, answer, latency and endpoint; an identical call reuses the ledger instead of spending another request.
+
 ## Supported judgments
 
 - `noul`: Does this unresolved branch block the next step?

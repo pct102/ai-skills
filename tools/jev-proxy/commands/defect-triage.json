@@ -1,0 +1,10 @@
+{
+  "name": "defect-triage",
+  "question": "Is this failure a product defect, a test defect, or the environment?",
+  "type": "choice",
+  "options": {
+    "product": "product code is wrong",
+    "test": "the test is wrong",
+    "env": "flake, port, data or setup"
+  }
+}

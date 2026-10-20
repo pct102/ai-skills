@@ -8,7 +8,7 @@ The builder says it is done. Run what you wrote and report; do not edit product 
    and the HTML report is local-only — never stage or commit `playwright-report/` or `test-results/`.
 1. Run the fast tier first: `<fast command>` (`--max-failures=3`). Then the full suite once, including `@slow`.
 2. For every failure, work out whether the product or your test is wrong. If it is not obvious, one cheap second opinion:
-   `bash "$AI_SKILLS_HOME/tools/jev-check.sh" <f> "Product defect, test defect, or environment?" "<expected vs actual>" product="product code is wrong" test="the test is wrong" env="flake, port, data or setup"`
+   `bash "$AI_SKILLS_HOME/tools/jev-check.sh" <f> --command defect-triage "<expected vs actual>"`
    (a hint only; `JEV UNAVAILABLE` means decide yourself). Fix your own test bugs in `e2e/<f>/`
    and rerun. Do not weaken an assertion to make it pass.
 3. Reply with this table, then the defect list:

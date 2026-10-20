@@ -1,5 +1,5 @@
 #!/bin/bash
-# Helper script to manage Jev Gemini Local Proxy
+# Helper script to manage the Jev local proxy (backend: local model or Gemini, see README)
 
 PID_FILE="$HOME/.config/jev-cli/proxy.pid"
 LOG_FILE="$HOME/.config/jev-cli/proxy.log"
@@ -20,7 +20,9 @@ case "$1" in
     echo "$PID" > "$PID_FILE"
     sleep 0.5
     if kill -0 "$PID" 2>/dev/null; then
-      echo "Jev Gemini Proxy started successfully (PID: $PID) at http://127.0.0.1:8765/v1/systemone"
+      echo "Jev proxy started (PID: $PID) at http://127.0.0.1:8765/v1/systemone"
+      # say what it is really talking to: a green process does not mean a working backend
+      curl -s --max-time 3 http://127.0.0.1:8765/health && echo ""
     else
       echo "Failed to start Jev Proxy. Check logs at $LOG_FILE"
       exit 1

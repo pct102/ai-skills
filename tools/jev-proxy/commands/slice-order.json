@@ -1,0 +1,9 @@
+{
+  "name": "slice-order",
+  "question": "Can slices <a> and <b> run in parallel?",
+  "type": "choice",
+  "options": {
+    "parallel": "no shared state or interface",
+    "sequential": "one needs the other's output"
+  }
+}

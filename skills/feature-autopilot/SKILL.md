@@ -211,8 +211,8 @@ together and shows the waves. Fix and rerun until it is clean. When refactoring 
 new files and all read the same old file; that is fine, none of them edits it. The wiring slice (entry point, `index.html`)
 goes last and removes the old code.
 
-**Jev checkpoint (optional, one call).** When the slice order is a real judgment call after `plan` is clean, ask for a routing signal:
-`bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> "Can slices <a> and <b> run in parallel?" "<what each reads and writes, from slices.json>" parallel="no shared state or interface" sequential="one needs the other's output"`.
+**Jev checkpoint (optional, one call, versioned).** When the slice order is a real judgment call after `plan` is clean, ask for a routing signal from `tools/jev-proxy/commands/slice-order.json`:
+`bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command slice-order "<what each reads and writes, from slices.json>" a=<a> b=<b>`.
 `sdlc-slices.mjs` stays the authority on file overlap; Jev only breaks ties on interface dependence.
 
 ### 3. Build and write the e2e suite, in parallel
@@ -270,7 +270,7 @@ yourself, and run:
 `node ${AI_SKILLS_HOME}/tools/sdlc-verify.mjs --feature <f>`
 
 - exit `0` → go to step 5
-- exit `1` → **first triage each defect**: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> "Is this failure a product defect, a test defect, or the environment?" "<repro + expected + actual>" product="product code is wrong" test="the test is wrong or asserts the wrong thing" env="flake, port, data or setup"`.
+- exit `1` → **first triage each defect** from `tools/jev-proxy/commands/defect-triage.json`: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`.
   The answer is a signal, not a verdict: open the evidence before you act on it, and if it prints `JEV UNAVAILABLE` decide yourself and go on.
   Then each real defect becomes a fix prompt to the builder (repro + expected vs
   actual + screenshot path). Send it to the lane of the slice that owns the file at fault (`sdlc-slices.mjs reset`
