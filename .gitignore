@@ -10,3 +10,5 @@ autopilot.env
 .DS_Store
 .claude/settings.local.json
 .sdlc/*.log
+__pycache__/
+*.pyc
