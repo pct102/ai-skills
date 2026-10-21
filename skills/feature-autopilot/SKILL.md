@@ -211,10 +211,6 @@ together and shows the waves. Fix and rerun until it is clean. When refactoring 
 new files and all read the same old file; that is fine, none of them edits it. The wiring slice (entry point, `index.html`)
 goes last and removes the old code.
 
-**Jev checkpoint (optional, one call, versioned).** When the slice order is a real judgment call after `plan` is clean, ask for a routing signal from `tools/jev-proxy/commands/slice-order.json`:
-`bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command slice-order "<what each reads and writes, from slices.json>" a=<a> b=<b>`.
-`sdlc-slices.mjs` stays the authority on file overlap; Jev only breaks ties on interface dependence.
-
 ### 3. Build and write the e2e suite, in parallel
 
 **Builders.** Loop until `sdlc-slices.mjs status <f>` shows every slice `done`:
@@ -270,7 +266,7 @@ yourself, and run:
 `node ${AI_SKILLS_HOME}/tools/sdlc-verify.mjs --feature <f>`
 
 - exit `0` → go to step 5
-- exit `1` → **first triage each defect** from `tools/jev-proxy/commands/defect-triage.json`: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`.
+- exit `1` → **triage each defect first (required: `sdlc-verify` refuses to re-run until the trace has a `jev:` decision or a reasoned `no-jev:` one)** from `tools/jev-proxy/commands/defect-triage.json`: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`.
   The answer is a signal, not a verdict: open the evidence before you act on it, and if it prints `JEV UNAVAILABLE` decide yourself and go on.
   Then each real defect becomes a fix prompt to the builder (repro + expected vs
   actual + screenshot path). Send it to the lane of the slice that owns the file at fault (`sdlc-slices.mjs reset`

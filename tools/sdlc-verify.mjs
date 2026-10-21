@@ -255,6 +255,26 @@ function slicingProblem(featureDir) {
     `sdlc-trace.mjs --feature <f> --log --from leader --to leader --kind decision --note "no-slice: <reason, 10+ chars>"`
 }
 
+// A failed verification in an autopilot run (the trace has dispatched prompts) must be triaged before the next
+// one: a Jev call (jev-check.sh logs a `jev:` decision even when the proxy is down) or an explicit, reasoned
+// `no-jev: <why>` decision. Order in the trace is the order of events, as for QA evidence.
+function triageProblem(featureDir) {
+  let lines = []
+  try { lines = readFileSync(join(featureDir, 'trace.jsonl'), 'utf8').split('\n') } catch { return null }
+  let driven = false, failedAt = -1, triagedAt = -1
+  lines.forEach((l, i) => {
+    let e
+    try { e = JSON.parse(l) } catch { return }
+    if (e.kind === 'prompt') driven = true
+    else if (e.kind === 'verify') failedAt = e.rc === 1 ? i : -1
+    else if (e.kind === 'decision' && typeof e.note === 'string' && /^(jev:|no-jev:\s*\S.{9,})/.test(e.note)) triagedAt = i
+  })
+  if (!driven || failedAt < 0 || triagedAt > failedAt) return null
+  return 'the last verification failed and the defects were not triaged. Run ' +
+    '`jev-check.sh <f> --command defect-triage "<repro + expected + actual>"` (JEV UNAVAILABLE counts), or log why not: ' +
+    'sdlc-trace.mjs --feature <f> --log --from leader --to leader --kind decision --note "no-jev: <reason, 10+ chars>"'
+}
+
 // Reads trace.jsonl in order. QA counts when its latest reply succeeded (rc 0) and nothing from a builder
 // replied after it. Order in the file is the order of events, so no clock comparison is needed.
 function qaEvidenceProblem(featureDir) {
@@ -464,6 +484,10 @@ function main(argv) {
       process.stdout.write(`recorded approval ${feature}#${opts.approve} by ${opts.by}, re-verifying\n`)
     }
   }
+
+  // ---- a failed run is triaged before the next one
+  const untriaged = triageProblem(featureDir)
+  if (untriaged) throw new ConfigError(`refused: ${untriaged}`)
 
   // ---- run every check
   const results = []

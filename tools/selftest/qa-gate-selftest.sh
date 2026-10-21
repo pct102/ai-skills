@@ -117,6 +117,22 @@ check "one skipped test among executed ones only warns (0)" "0" "$(pwcase oneski
 fresh old true; reply old builder 0; reply old qa 0
 check "a cmd that does not name playwright.json is judged as before (0)" "0" "$(verify old)"
 
+# ---- a failed verification of an autopilot-driven run is triaged before the next one
+decide() { node "$TRACE" --feature "$1" --log --from leader --to leader --kind decision --note "$2" >/dev/null 2>&1; }
+fresh tri true
+node "$TRACE" --feature tri --log --from leader --to qa-e2e --kind prompt --note x >/dev/null 2>&1
+check "driven run, QA missing: first verify fails (1)" "1" "$(verify tri)"
+check "…the re-run is refused until the failure is triaged (3)" "3" "$(verify tri)"
+check "…and says how" "1" "$(grep -c 'defect-triage' "$T/out")"
+decide tri "no-jev: x"
+check "a no-jev decision without a real reason is refused (3)" "3" "$(verify tri)"
+decide tri "jev: Is this a product defect? -> none"
+check "a jev decision (even an unavailable one) unblocks the re-run (1)" "1" "$(verify tri)"
+check "…and the next failure needs a new triage (3)" "3" "$(verify tri)"
+decide tri "no-jev: flaky env, rerunning unchanged"
+reply tri qa 0
+check "a reasoned no-jev decision unblocks it too (0)" "0" "$(verify tri)"
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]
