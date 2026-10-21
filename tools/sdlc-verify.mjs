@@ -256,8 +256,8 @@ function slicingProblem(featureDir) {
 }
 
 // A failed verification in an autopilot run (the trace has dispatched prompts) must be triaged before the next
-// one: a Jev call (jev-check.sh logs a `jev:` decision even when the proxy is down) or an explicit, reasoned
-// `no-jev: <why>` decision. Order in the trace is the order of events, as for QA evidence.
+// one: a Jev call. jev-check.sh logs a `jev:` decision even when the proxy is down or answers nothing usable
+// (`-> none`), so there is no reason to skip it and no way to opt out. Order in the trace is the order of events.
 function triageProblem(featureDir) {
   let lines = []
   try { lines = readFileSync(join(featureDir, 'trace.jsonl'), 'utf8').split('\n') } catch { return null }
@@ -267,12 +267,11 @@ function triageProblem(featureDir) {
     try { e = JSON.parse(l) } catch { return }
     if (e.kind === 'prompt') driven = true
     else if (e.kind === 'verify') failedAt = e.rc === 1 ? i : -1
-    else if (e.kind === 'decision' && typeof e.note === 'string' && /^(jev:|no-jev:\s*\S.{9,})/.test(e.note)) triagedAt = i
+    else if (e.kind === 'decision' && typeof e.note === 'string' && /^jev:/.test(e.note)) triagedAt = i
   })
   if (!driven || failedAt < 0 || triagedAt > failedAt) return null
   return 'the last verification failed and the defects were not triaged. Run ' +
-    '`jev-check.sh <f> --command defect-triage "<repro + expected + actual>"` (JEV UNAVAILABLE counts), or log why not: ' +
-    'sdlc-trace.mjs --feature <f> --log --from leader --to leader --kind decision --note "no-jev: <reason, 10+ chars>"'
+    '`jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`. An answer of JEV UNAVAILABLE counts; there is no opt-out.'
 }
 
 // Reads trace.jsonl in order. QA counts when its latest reply succeeded (rc 0) and nothing from a builder

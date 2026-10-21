@@ -266,7 +266,7 @@ yourself, and run:
 `node ${AI_SKILLS_HOME}/tools/sdlc-verify.mjs --feature <f>`
 
 - exit `0` → go to step 5
-- exit `1` → **triage each defect first (required: `sdlc-verify` refuses to re-run until the trace has a `jev:` decision or a reasoned `no-jev:` one)** from `tools/jev-proxy/commands/defect-triage.json`: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`.
+- exit `1` → **triage each defect first (required: `sdlc-verify` refuses to re-run until the trace has a `jev:` decision; there is no opt-out, and `JEV UNAVAILABLE` counts)** from `tools/jev-proxy/commands/defect-triage.json`: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`.
   The answer is a signal, not a verdict: open the evidence before you act on it, and if it prints `JEV UNAVAILABLE` decide yourself and go on.
   Then each real defect becomes a fix prompt to the builder (repro + expected vs
   actual + screenshot path). Send it to the lane of the slice that owns the file at fault (`sdlc-slices.mjs reset`

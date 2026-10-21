@@ -124,14 +124,14 @@ node "$TRACE" --feature tri --log --from leader --to qa-e2e --kind prompt --note
 check "driven run, QA missing: first verify fails (1)" "1" "$(verify tri)"
 check "…the re-run is refused until the failure is triaged (3)" "3" "$(verify tri)"
 check "…and says how" "1" "$(grep -c 'defect-triage' "$T/out")"
-decide tri "no-jev: x"
-check "a no-jev decision without a real reason is refused (3)" "3" "$(verify tri)"
+decide tri "no-jev: the defects are understood from the evidence"
+check "a no-jev decision, however reasoned, does not unblock it (3)" "3" "$(verify tri)"
 decide tri "jev: Is this a product defect? -> none"
 check "a jev decision (even an unavailable one) unblocks the re-run (1)" "1" "$(verify tri)"
 check "…and the next failure needs a new triage (3)" "3" "$(verify tri)"
-decide tri "no-jev: flaky env, rerunning unchanged"
+decide tri "jev: Is this a product defect? -> none"
 reply tri qa 0
-check "a reasoned no-jev decision unblocks it too (0)" "0" "$(verify tri)"
+check "a jev call that answered nothing (-> none) unblocks it, so a dead proxy never blocks a run (0)" "0" "$(verify tri)"
 
 # the repair history survives acceptance
 fresh rep true
