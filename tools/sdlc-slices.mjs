@@ -71,8 +71,10 @@ function clash(x, y) {
 
 // ------------------------------------------------------------------ files
 
-const readJson = (f) => {
-  try { return JSON.parse(readFileSync(f, 'utf8')) } catch (e) { throw new Bad(`${f}: ${e.code === 'ENOENT' ? 'not found' : e.message}`) }
+const readJson = (f, optional) => {
+  try { return JSON.parse(readFileSync(f, 'utf8')) } catch (e) {
+    if (optional) return null
+    throw new Bad(`${f}: ${e.code === 'ENOENT' ? 'not found' : e.message}`) }
 }
 
 function paths(feature) {
@@ -135,12 +137,20 @@ function saveState(p, st) {
 
 const IGNORE = [/^\.next(\/|$)/, /^tsconfig\.tsbuildinfo$/, /^\.git(\/|$)/, /^\.sdlc(\/|$)/, /(^|\/)node_modules(\/|$)/, /(^|\/)(test-results|playwright-report|\.playwright)(\/|$)/, /(^|\/)\.DS_Store$/, /\.log$/]
 
+// What git ignores (.docker-data/, .vercel/, coverage/...) is runtime state, not the builder's work: skip it,
+// which also keeps a 95 MB database folder out of the hashing. Folders are listed with a trailing slash.
+function gitIgnored(root) {
+  const r = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'], { cwd: root, encoding: 'utf8' })
+  return new Set(r.status === 0 ? r.stdout.split('\n').filter(Boolean).map((f) => f.replace(/\/$/, '')) : [])
+}
+
 function snapshot(root = '.') {
   const out = {}
+  const ignored = gitIgnored(root)
   const walk = (rel) => {
     for (const name of readdirSync(join(root, rel))) {
       const r = rel ? `${rel}/${name}` : name
-      if (IGNORE.some((re) => re.test(r))) continue
+      if (IGNORE.some((re) => re.test(r)) || ignored.has(r)) continue
       const full = join(root, r)
       const st = statSync(full)
       if (st.isDirectory()) walk(r)
@@ -235,7 +245,9 @@ function cmdDone(p, id) {
     if (!t || !t.started) continue
     if (t.started <= now && (t.finished ?? now) >= mine.started) allowed.push(...o.owns)
   }
-  const outside = changed(before, snapshot()).filter((f) => !matches(allowed, f))
+  // Files the feature owns but no slice does (the QA lane's e2e tests) are written while builders run by design.
+  const unsliced = (readJson(`${p.fdir}/ownership.json`, true) || {}).owns || []
+  const outside = changed(before, snapshot()).filter((f) => !matches(allowed, f) && !(matches(unsliced, f) && !L.slices.some((o) => matches(o.owns, f))))
   const reasons = []
   if (outside.length) reasons.push(`changed files outside the slice: ${outside.join(', ')}`)
   let checkOut = ''

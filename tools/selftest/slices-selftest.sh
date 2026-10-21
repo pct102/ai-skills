@@ -85,6 +85,27 @@ echo 1 > l/a.js; echo 2 > r/b.js
 check "two slices running together do not blame each other" "0" "$(rc done f left)"
 check "…the second one passes too" "0" "$(rc done f right)"
 
+# files the feature owns but no slice does (the QA lane) are not blamed on a builder
+put slices.json '{"slices":[{"id":"bld","owns":["b/**"]}]}'
+put ownership.json '{"owns":["b/**","e2e/**"]}'
+mkdir -p b e2e
+node "$SL" start f bld >/dev/null 2>&1
+echo 1 > b/a.js; echo 2 > e2e/qa.spec.js
+check "an unsliced file the feature owns is not blamed on a slice" "0" "$(rc done f bld)"
+put slices.json '{"slices":[{"id":"bld2","owns":["b/**"]}]}'
+node "$SL" start f bld2 >/dev/null 2>&1
+echo 3 > b/a.js; echo 4 > stray.txt
+check "…a file nobody owns still is (1)" "1" "$(rc done f bld2)"
+rm -f .sdlc/features/f/ownership.json stray.txt
+
+# git-ignored runtime state (a database folder) is not blamed on a slice either
+git init -q . 2>/dev/null; printf 'rt/\n' > .gitignore
+put slices.json '{"slices":[{"id":"ign","owns":["i/**"]}]}'
+mkdir -p i rt
+node "$SL" start f ign >/dev/null 2>&1
+echo 1 > i/a.js; echo db > rt/data
+check "a git-ignored file is not blamed on a slice" "0" "$(rc done f ign)"
+
 # a failing check fails the slice
 put slices.json '{"slices":[{"id":"chk","owns":["c/**"],"check":"exit 7"}]}'
 node "$SL" start f chk >/dev/null 2>&1
