@@ -272,6 +272,13 @@ claude_stop=done; claude_wait=0; claude_why="the leader has not run yet"; claude
 claude_json=0
 . "$AI_SKILLS_HOME/tools/model-setting.sh"
 leader_args=(); leader_model=$(model_setting LEADER_MODEL); [ -n "$leader_model" ] && leader_args=(--model "$leader_model")
+# The leader may not push, hard-reset, clean or force-delete branches: a PreToolUse hook for this session only
+# (sdlc-ship pushes from its own process, which the hook does not see). Needs jq; without it the git_rule below is the only guard.
+if command -v jq >/dev/null 2>&1; then
+  leader_args+=(--settings "$(jq -cn --arg c "$AI_SKILLS_HOME/tools/hooks/leader-git-guard.sh" '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$c}]}]}}')")
+else
+  echo "autopilot: jq not found, the leader git guard hook is off (install jq)" >&2
+fi
 case "$(claude --help 2>/dev/null || true)" in *--output-format*) claude_json=1 ;; esac
 
 claude_run() {   # <prompt>; sets claude_stop, claude_wait, claude_why

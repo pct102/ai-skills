@@ -30,7 +30,7 @@ with `tools/`, and which are worth wiring next. Where a skill and a `tools/` gat
 
 1. **Retro as the last pass.** After `accepted`, a short pass that applies the `retro` categories to the run's trace and writes `retro.md`
    next to `evidence.md`. The `repair_iterations_used` field now keeps the data this needs.
-2. **Guardrail hook for the leader.** Install the git-guardrails hook only for the autopilot leader session, so a normal interactive
-   `git push` stays possible.
+2. ~~Guardrail hook for the leader.~~ Done: `tools/hooks/leader-git-guard.sh`, passed to the leader with `--settings` in `autopilot.sh`, so
+   interactive sessions are untouched. `sdlc-ship` pushes from its own process and is not affected. Builders (opencode) are not covered.
 3. **Tracer-bullet check in `slices.json`.** `to-tickets` requires each slice to be a complete vertical path that is verifiable alone.
    `sdlc-slices plan` checks overlap only; a slice that is a horizontal layer is not flagged.
