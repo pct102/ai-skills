@@ -133,6 +133,13 @@ decide tri "no-jev: flaky env, rerunning unchanged"
 reply tri qa 0
 check "a reasoned no-jev decision unblocks it too (0)" "0" "$(verify tri)"
 
+# the repair history survives acceptance
+fresh rep true
+verify rep >/dev/null; verify rep >/dev/null; reply rep qa 0; verify rep >/dev/null
+check "fail, fail, pass: repair_iterations resets to 0" "0" "$(python3 -c 'import json;print(json.load(open(".sdlc/features/rep/status.json"))["repair_iterations"])')"
+check "…repair_iterations_used keeps the 2 failed runs" "2" "$(python3 -c 'import json;print(json.load(open(".sdlc/features/rep/status.json"))["repair_iterations_used"])')"
+check "…and evidence.json carries it too" "2" "$(python3 -c 'import json;print(json.load(open(".sdlc/features/rep/evidence.json"))["repair_iterations_used"])')"
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

@@ -336,6 +336,7 @@ function defaultStatus(feature, budget) {
     phase: 'contract',
     budget,
     repair_iterations: 0,
+    repair_iterations_used: 0,   // never reset: how many failed runs this feature has needed in total
     blocked_reason: null,
     approvals: {},
     last_run: null,
@@ -561,6 +562,7 @@ function main(argv) {
     status.blocked_reason = `human_gate_pending: ${pendingGates.map((g) => g.id).join(', ')}`
   } else {
     status.repair_iterations += 1
+    status.repair_iterations_used = (status.repair_iterations_used || 0) + 1
     if (status.repair_iterations > status.budget) {
       status.phase = 'escalated'
       status.blocked_reason =
@@ -582,6 +584,7 @@ function main(argv) {
     phase: status.phase,
     previous_phase: before,
     repair_iterations: status.repair_iterations,
+    repair_iterations_used: status.repair_iterations_used || 0,
     budget: status.budget,
     passed: results.filter((r) => r.ok).length,
     failed: hardFailures.length,

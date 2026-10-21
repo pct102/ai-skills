@@ -25,7 +25,9 @@ case "$1" in
       exit 0
     fi
     mkdir -p "$HOME/.config/jev-cli"
-    nohup "$PY" "$SCRIPT" > "$LOG_FILE" 2>&1 &
+    # keep history across restarts; one backup file once the log passes 1 MB
+    [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ] && mv "$LOG_FILE" "$LOG_FILE.1"
+    nohup "$PY" "$SCRIPT" >> "$LOG_FILE" 2>&1 &
     PID=$!
     echo "$PID" > "$PID_FILE"
     sleep 0.5
