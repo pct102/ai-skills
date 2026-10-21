@@ -14,6 +14,9 @@ These are reusable capabilities. They are not copied into this repository and mu
 | `verification` | `obra/superpowers` | `app-sdlc` | `verification-before-completion` | Evidence before completion claims. |
 | `tdd` | `obra/superpowers` and `mattpocock/skills` | `pct102-tdd` | `test-driven-development`, `tdd` | Red-green-refactor behavior changes and regression coverage. |
 | `review-code` | `obra/superpowers` and `mattpocock/skills` | `pct102-review-code` | `requesting-code-review`, `code-review` | Final diff, spec compliance, security, and regression review. |
+| `session-retro` | `mattpocock/skills` | `references/mattpocock-skills.md` | `retro` | Turn a finished run's trace and evidence into environment fixes. |
+| `git-guardrails` | `mattpocock/skills` (`skills/misc`) | `references/mattpocock-skills.md` | `git-guardrails-claude-code` | Block destructive git commands in unattended sessions. |
+| `spec-and-tickets` | `mattpocock/skills` | `references/mattpocock-skills.md` | `to-spec`, `to-tickets`, `implement-spec`, `handoff`, `triage`, `wayfinder` | Optional tracker-based planning and hand-off; `tools/sdlc-slices.mjs` stays the authority inside autopilot. |
 | `bug-fix` | `obra/superpowers` | `bug-fix` | `systematic-debugging`, `verification-before-completion` | Reproduce, isolate, confirm root cause, regression test, minimal fix, verify. |
 | `frontend-patterns` | React Bits | `pct102-frontend-patterns` | `frontend-ui-engineering`, `ckw-design` | Reusable component selection, React Bits integration, motion, accessibility, and visual QA. |
 | `site-clone` | `cth9191/site-clone` | `pct102-frontend-patterns` | `clone-site`, `dom-clone`, `shader-extract`, `remix-site` | Authorized design teardown, measured rebuild, and pixel QA. |

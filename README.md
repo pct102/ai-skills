@@ -50,7 +50,7 @@ component that grants acceptance should not be able to fail to install.
 ## External references
 
 - `obra/superpowers`: brainstorming, worktrees, plans, subagent execution, TDD, review, verification, and branch finishing
-- `mattpocock/skills`: `grill-me`, `grilling`, `tdd`, and `code-review`
+- `mattpocock/skills`: `grill-me`, `grilling`, `tdd`, `code-review`, plus `retro`, `git-guardrails`, and the spec/ticket flow (see `references/mattpocock-skills.md`)
 - `DietrichGebert/ponytail`: lazy senior developer ladder and intensity modes
 - React Bits: frontend component reference catalog
 - `public-apis/public-apis`: API discovery and provider evaluation catalog
