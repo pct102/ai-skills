@@ -178,6 +178,19 @@ git add -f .sdlc/features/game/spec.md && git commit -q -m "track spec"; echo "#
 COMMIT_SDLC=no node "$SHIP" --feature game >/dev/null 2>&1
 check "COMMIT_SDLC=no: an already tracked .sdlc file is not committed again" "0" "$(git show --name-only --format= HEAD | grep -c '^\.sdlc/')"
 
+# an owned test file hidden by .gitignore must stop the ship, not vanish from it
+R="$(new_repo r_ignored)"; cd "$R"
+printf '/e2e/*\n' > .gitignore; git add .gitignore && git commit -q -m ignore
+out="$(node "$SHIP" --feature game 2>&1)"; rc=$?
+check "owned file ignored by git: refused" "1" "$rc"
+check "…names the hidden file" "1" "$(printf '%s' "$out" | grep -c '! e2e/game')"
+check "…and commits nothing" "ignore" "$(git log --format=%s | head -1)"
+git checkout -q -f main 2>/dev/null; printf '/e2e/\n' > .gitignore; git add .gitignore && git commit -q -m ignore2
+node "$SHIP" --feature game >/dev/null 2>&1
+check "…also when the whole parent folder is ignored" "1" "$?"
+node "$SHIP" --feature game --allow-ignored >/dev/null 2>&1
+check "--allow-ignored overrides" "0" "$?"
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

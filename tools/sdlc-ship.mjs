@@ -20,6 +20,8 @@
 // enforced: a branch switched to mid-run is refused, because the feature's branch name is not the leader's
 // to choose — pass --branch to commit somewhere else on purpose.
 //
+// An owned file that git ignores is refused (--allow-ignored to override): it would otherwise ship silently missing.
+//
 // Exit: 0 committed or nothing to commit | 1 refused | 3 usage or configuration error
 import { spawnSync } from 'node:child_process'
 import { readFileSync, appendFileSync, existsSync, statSync, realpathSync } from 'node:fs'
@@ -126,6 +128,19 @@ for (let i = 0; i < entries.length; i++) {
   if (x === 'R' || x === 'C') i++          // rename/copy: the next entry is the old path
   if (prefix && !path.startsWith(prefix)) { elsewhere++; continue }   // status paths are relative to the repository root
   changed.push(prefix ? path.slice(prefix.length) : path)
+}
+
+// An owned file that git ignores never appears in `status`, so it would ship without being staged or reported.
+// Refuse instead: the usual victim is the feature's own tests (a .gitignore pattern like /e2e/* swallowing e2e/smoke).
+const hidden = must('status', '--porcelain=v1', '-z', '--ignored=matching').split('\0')
+  .filter((e) => e.startsWith('!! ')).map((e) => e.slice(3).replace(/\/$/, ''))
+  .filter((p) => !prefix || p.startsWith(prefix)).map((p) => p.slice(prefix.length))
+  .filter((p) => !(commitSdlc ? false : /^\.sdlc(\/|$)/.test(p)) && !DENY.some(([re]) => re.test(p)) && (owned.some((re) => re.test(p) || re.test(p + '/')) ||   // an ignored folder is reported as 'dir/'
+    own.owns.some((g) => g.split(/[*?]/)[0].startsWith(p + '/'))))   // ...or hides a folder the globs point into
+if (hidden.length && !has('allow-ignored')) {
+  die(1, `refused: ${hidden.length} file(s) this feature owns are ignored by git and would not be committed:\n` +
+    hidden.slice(0, 20).map((p) => `  ! ${p}`).join('\n') +
+    `\nFix the .gitignore pattern that hides them (git check-ignore -v <file>), or pass --allow-ignored if they are meant to stay local.`)
 }
 
 const stage = [], skip = []

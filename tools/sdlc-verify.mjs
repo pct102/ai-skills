@@ -368,7 +368,8 @@ function runCheck(cmd, cwd, timeoutMs) {
   const code = res.error
     ? (res.error.code === 'ETIMEDOUT' ? 'timeout' : 'spawn-failed')
     : res.status
-  const raw = `${res.stdout || ''}${res.stderr || ''}`
+  // spawn-failed alone hides why (ENOBUFS, EMFILE, EAGAIN...): record the errno.
+  const raw = `${res.error && code === 'spawn-failed' ? `[${res.error.code || res.error.name}: ${res.error.message}]\n` : ''}${res.stdout || ''}${res.stderr || ''}`
   const lines = raw.split('\n')
   const clipped = lines.slice(0, OUTPUT_MAX_LINES).join('\n').slice(0, OUTPUT_MAX_CHARS)
   return { exit_code: code, duration_ms: duration, output: clipped, truncated: lines.length > OUTPUT_MAX_LINES }
