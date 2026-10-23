@@ -261,7 +261,15 @@ This reply is what the `qa-evidence` check looks for, and it must come after the
 ### 4. Leader review
 
 Do not trust the QA table. Open the screenshots (read the images), re-run the suite
-yourself, and run:
+yourself.
+
+**QA reported FAIL (or any defect)?** Triage each defect with Jev before you send a fix round, even if `sdlc-verify` has not
+failed yet: `bash ${AI_SKILLS_HOME}/tools/jev-check.sh <f> --command defect-triage "<repro + expected + actual>"`. It logs a `jev:`
+decision to the trace. Route on it as a signal only (`product` → fix prompt to the builder; `test` → send back to QA; `env` → fix the
+environment and rerun), and open the evidence before acting. `JEV UNAVAILABLE` means decide yourself and go on. Skipping this is how a
+run finishes with an empty `jev-ledger.jsonl`.
+
+Then run:
 
 `node ${AI_SKILLS_HOME}/tools/sdlc-verify.mjs --feature <f>`
 

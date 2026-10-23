@@ -11,7 +11,7 @@ Jev is a System 1 fast-routing model (e.g. Jev 1.13) dedicated to low-latency cl
 
 ## Setup
 
-`uv tool install jev-cli` (client and MCP, https://github.com/tumf/jev-cli), then start the backend with `${AI_SKILLS_HOME}/tools/jev-proxy/jev-proxy start` (needs a free Google AI Studio key, see its README). The exact questions leaders send live versioned in `${AI_SKILLS_HOME}/tools/jev-proxy/commands/*.json`, invoked via `tools/jev-check.sh <f> --command <name>`; every call lands in the feature's `jev-ledger.jsonl` and identical repeats are served from it.
+`uv tool install jev-cli` (client and MCP, https://github.com/tumf/jev-cli), then start the backend with `${AI_SKILLS_HOME}/tools/jev-proxy/jev-proxy start` (backend is Cloudflare Workers AI `@cf/cloudflare/clef-flash`, set in `~/.config/jev-cli/config.json`: needs a Cloudflare account id and token, see its README; the Gemini backend is only a fallback). The exact questions leaders send live versioned in `${AI_SKILLS_HOME}/tools/jev-proxy/commands/*.json`, invoked via `tools/jev-check.sh <f> --command <name>`; every call lands in the feature's `jev-ledger.jsonl` and identical repeats are served from it.
 
 ## Configuration
 
