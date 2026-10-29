@@ -32,7 +32,7 @@ case "$1 $2" in
     printf '%s\t%s\n' "$n" "$t" >> "$db"; echo "https://github.com/o/r/issues/$n" ;;
   "issue comment") echo "https://github.com/o/r/issues/1#issuecomment-9" ;;
   "issue view") echo '{"labels":[{"name":"needs-fix"}]}' ;;
-  "issue edit"|"label create") ;;
+  "issue edit"|"issue close"|"label create") ;;
   "image "*) shift; for f in "$@"; do case "$f" in --repo|o/r) ;; *) echo "![x](https://github.com/user-attachments/assets/0ff6ee29-4729-4ae9-bbb1-22489701889e)" ;; esac; done ;;
 esac
 GH
@@ -59,6 +59,7 @@ check "github: comment by --url uploads the image and posts it" "1 1 0" "$(print
 : > "$GH_DB.calls"
 out="$(ISSUE_TRACKER= node "$IS" label --url https://github.com/o/r/issues/1 --add ready-for-test --remove needs-fix --remove verified 2>&1)"
 check "label: --url turns the tracker on, creates the label, swaps it" "1 1 1 0" "$(grep -c 'label create ready-for-test --repo o/r' "$GH_DB.calls") $(grep -c 'issue edit 1 --repo o/r --add-label ready-for-test --remove-label needs-fix' "$GH_DB.calls") $(printf '%s' "$out" | grep -c '+ready-for-test -needs-fix') $(grep -c 'remove-label verified' "$GH_DB.calls")"
+check "close: --url closes the issue as completed" "1" "$(ISSUE_TRACKER= node "$IS" close --url https://github.com/o/r/issues/1 >/dev/null 2>&1; grep -c 'issue close 1 --repo o/r --reason completed' "$GH_DB.calls")"
 check "label: a bad --url is a usage error" "3" "$(node "$IS" label --url https://example.com/x --add a >/dev/null 2>&1; echo $?)"
 
 # fake Jira: GET search/jql returns what was created; POST issue stores a summary and checks Basic auth
