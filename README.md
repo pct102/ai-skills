@@ -10,6 +10,7 @@ Personal AI software delivery skills.
 - `feature-diagrams`: after acceptance, draws how the feature is built and what the user does (Archify)
 - `bug-fix`: reproduce, isolate, confirm, regress, fix, verify
 - `pct102-frontend-patterns`: frontend component selection, integration, motion, accessibility, and visual QA
+- `pct102-ui-qa`: black-box UI QA from a URL (clicks, dropdowns, scroll, resize, drag, dark mode, responsive, transitions) with GitHub issue drafts
 
 `tools/` is the part that decides whether work actually passed. See **The machine layer**
 below.
@@ -92,6 +93,7 @@ skills/
   feature-lifecycle/
   bug-fix/
   pct102-frontend-patterns/
+  pct102-ui-qa/
   archify/                   ← vendored renderer for diagrams (MIT, pinned; see VENDORED.md)
 references/
   dependencies.md
@@ -106,6 +108,7 @@ tools/
   autopilot.sh               ← `autopilot "<request>"`: server, live viewers, Claude, trace
   link-skills.sh             ← symlink skills/* into ~/.claude/skills (Claude + opencode read it)
   sdlc-issue.mjs             ← QA files/looks up a GitHub issue or Jira ticket per product defect (opt-in)
+  ui-qa.mjs                 ← `ui-qa.mjs <url>`: black-box UI check engine behind pct102-ui-qa; `ui-qa.mjs file <dir>` files its issues
   sdlc-ship.mjs              ← commits one accepted feature: owned files only, never a protected branch (`PROTECTED_BRANCHES`)
   sdlc-diagrams.mjs          ← trace + status as Archify diagrams, one hub page per feature
   oc-agent.sh                ← calls an opencode builder/qa agent, keeps its session
