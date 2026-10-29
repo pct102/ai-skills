@@ -33,7 +33,7 @@ The engine is `${AI_SKILLS_HOME}/tools/ui-qa.mjs` (deterministic, no tokens spen
 | Area | How |
 |---|---|
 | Responsive | 375 / 768 / 1024 / 1440 px: horizontal scroll with the offending element, touch targets under 24px, broken images, live resize on the same page |
-| Dark mode | `prefers-color-scheme: dark` pass: contrast failures that appear only in dark, pages that ignore it, theme-toggle button re-checked in its toggled state |
+| Dark mode | `prefers-color-scheme: dark` pass: contrast failures that appear only in dark, light surfaces (white buttons, pills, badges) left on a dark parent, pages that ignore it, theme-toggle button re-checked in its toggled state |
 | Events | Hover + click every safe control (blocked by overlay, no visible response, dialog ignores Esc), every `<select>` option, `[draggable]` drag, scroll to bottom (layout shift), Tab through focus stops |
 | Transitions | Transitions/animations over 800ms after hover or click; animations that ignore `prefers-reduced-motion` |
 | Health | Uncaught exceptions, console errors, 4xx/5xx and failed requests, pages returning errors |

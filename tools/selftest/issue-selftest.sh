@@ -21,7 +21,7 @@ printf 'Login fails.\nkey AKIAABCDEFGHIJKLMNOP and token ghp_%s\n' "$(printf 'a%
 # fake gh: keeps issues in $T/gh.db (one "number<TAB>title" per line); records the --body it was given
 cat > bin/gh <<'GH'
 #!/usr/bin/env bash
-db="$GH_DB"; touch "$db"
+db="$GH_DB"; touch "$db"; printf '%s\n' "$*" >> "$GH_DB.calls"
 case "$1 $2" in
   "--version "*) echo "gh fake" ;;
   "issue list") node -e '
@@ -30,6 +30,10 @@ case "$1 $2" in
   "issue create") n=$(( $(wc -l < "$db") + 1 ))
     while [ $# -gt 0 ]; do case "$1" in --title) t=$2; shift ;; --body) printf '%s' "$2" > "$GH_DB.body"; shift ;; esac; shift; done
     printf '%s\t%s\n' "$n" "$t" >> "$db"; echo "https://github.com/o/r/issues/$n" ;;
+  "issue comment") echo "https://github.com/o/r/issues/1#issuecomment-9" ;;
+  "issue view") echo '{"labels":[{"name":"needs-fix"}]}' ;;
+  "issue edit"|"label create") ;;
+  "image "*) shift; for f in "$@"; do case "$f" in --repo|o/r) ;; *) echo "![x](https://github.com/user-attachments/assets/0ff6ee29-4729-4ae9-bbb1-22489701889e)" ;; esac; done ;;
 esac
 GH
 chmod +x bin/gh
@@ -49,6 +53,13 @@ check "github: a rerun reuses the open issue" "already filed: #1 https://github.
 check "github: still one issue" "1" "$(wc -l < "$GH_DB" | tr -d ' ')"
 check "github: secrets are scrubbed from the body" "0" "$(grep -cE 'AKIAABCDEFGHIJKLMNOP|ghp_a{36}' "$GH_DB.body")"
 check "github: search finds it" "#1 https://github.com/o/r/issues/1" "$(node "$IS" search --title "Login fails" --feature demo)"
+printf 'png' > shot.png
+out="$(node "$IS" comment --url https://github.com/o/r/issues/1 --body "Fixed. key AKIAABCDEFGHIJKLMNOP" --image shot.png 2>&1)"
+check "github: comment by --url uploads the image and posts it" "1 1 0" "$(printf '%s' "$out" | grep -c 'commented:') $(tr '\n' ' ' < "$GH_DB.calls" | grep -c 'issue comment 1 --repo o/r --body Fixed.*user-attachments/assets/0ff6ee29') $(grep -c 'AKIAABCDEFGHIJKLMNOP' "$GH_DB.calls")"
+: > "$GH_DB.calls"
+out="$(ISSUE_TRACKER= node "$IS" label --url https://github.com/o/r/issues/1 --add ready-for-test --remove needs-fix --remove verified 2>&1)"
+check "label: --url turns the tracker on, creates the label, swaps it" "1 1 1 0" "$(grep -c 'label create ready-for-test --repo o/r' "$GH_DB.calls") $(grep -c 'issue edit 1 --repo o/r --add-label ready-for-test --remove-label needs-fix' "$GH_DB.calls") $(printf '%s' "$out" | grep -c '+ready-for-test -needs-fix') $(grep -c 'remove-label verified' "$GH_DB.calls")"
+check "label: a bad --url is a usage error" "3" "$(node "$IS" label --url https://example.com/x --add a >/dev/null 2>&1; echo $?)"
 
 # fake Jira: GET search/jql returns what was created; POST issue stores a summary and checks Basic auth
 cat > jira.js <<'JS'

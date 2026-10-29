@@ -18,7 +18,7 @@
 // Exit: 0 done | 1 high-severity findings, or a tool/setup error | 3 usage error
 import { createRequire } from 'node:module'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { join, dirname, basename } from 'node:path'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { setting } from './lib/setting.mjs'
@@ -35,7 +35,7 @@ if (argv[0] === 'file') {
   const tracker = setting('ISSUE_TRACKER').toLowerCase()
   if (!tracker) { console.log('ui-qa: ISSUE_TRACKER is off, nothing filed. Set ISSUE_TRACKER=github in ./.sdlc/autopilot.env (see autopilot.env.example).'); process.exit(0) }
   let bad = 0
-  const gh = tracker === 'github', repo = setting('ISSUE_GITHUB_REPO'), repoArgs = repo ? ['--repo', repo] : []
+  const gh = tracker === 'github'
   const sdlc = (args) => spawnSync('node', [join(HERE, 'sdlc-issue.mjs'), ...args], { encoding: 'utf8' })
   if (has('with-images') && !gh) console.log('ui-qa: --with-images works with ISSUE_TRACKER=github only; filing text only.')
   for (const i of list) {
@@ -44,18 +44,11 @@ if (argv[0] === 'file') {
     if (r.status) { bad = 1; continue }
     const m = said.match(/(already filed|filed): (#\d+)/); if (!gh || !m) continue
     const again = m[1] === 'already filed', shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : []
-    let evidence = []
-    if (shots.length) {
-      const up = spawnSync('gh', ['image', ...repoArgs, ...shots], { encoding: 'utf8' })
-      const urls = up.stdout?.match(/https:\/\/github\.com\/user-attachments\/assets\/[0-9a-f-]+/g) || []
-      if (up.status || !urls.length) console.log(`ui-qa: image upload failed, commenting with local paths instead (${(up.stderr || up.error?.message || 'no URL returned').trim().split('\n')[0]}). Is the gh-image extension installed and your browser signed in to GitHub?`)
-      else evidence = urls.map((u, k) => `![${basename(shots[k] || 'screenshot')}](${u})`)
-    }
-    if (!again && !evidence.length && !shots.length) continue
+    if (!again && !shots.length) continue // a fresh issue needs no comment unless it carries images
     const date = new Date().toISOString().slice(0, 10)
-    const text = [again ? `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}` : `UI QA evidence (${date}).`, '',
-      ...(evidence.length ? evidence : shots.length ? [`Screenshots (local files, not uploaded): ${shots.map((x) => basename(x)).join(', ')}`] : [])].join('\n')
-    const c = sdlc(['comment', '--key', m[2], '--body', text]); console.log(c.stdout.trim() || c.stderr.trim()); if (c.status) bad = 1
+    const text = again ? `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}` : `UI QA evidence (${date}).`
+    const c = sdlc(['comment', '--key', m[2], '--body', text, ...shots.flatMap((x) => ['--image', x])])
+    console.log([c.stdout, c.stderr].map((x) => x.trim()).filter(Boolean).join('\n')); if (c.status) bad = 1
   }
   process.exit(bad)
 }
@@ -133,7 +126,7 @@ function flush(c, path, where) {
 
 // ---------- in-page layout check (must be self-contained: it is serialised into the page)
 const LAYOUT = ({ touch, ignore }) => {
-  const r = { overflow: 0, offenders: [], small: [], broken: [], contrast: [], bg: '', anims: 0 }
+  const r = { overflow: 0, offenders: [], small: [], broken: [], contrast: [], light: [], bg: '', anims: 0 }
   const de = document.documentElement
   const name = (e) => { const c = [...e.classList].slice(0, 2).join('.'); return e.tagName.toLowerCase() + (e.id ? '#' + e.id : c ? '.' + c : '') }
   const shown = (e) => { const b = e.getBoundingClientRect(), s = getComputedStyle(e); return b.width > 0 && b.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' }
@@ -178,6 +171,15 @@ const LAYOUT = ({ touch, ignore }) => {
     const k = name(e) + t.slice(0, 30)
     if (ratio < need && !seen.has(k)) { seen.add(k); r.contrast.push({ sel: name(e), text: t.slice(0, 30), ratio: +ratio.toFixed(2), need }) }
   }
+  // light surface on a dark parent (white pill/button/badge left in dark mode): dark text on white passes contrast, so only this catches it
+  n = 0
+  for (const e of document.body.querySelectorAll('button,a,[role=button],[role=tab],span,li,div,input,select')) {
+    if (++n > 1500 || r.light.length >= 8) break
+    if (!e.textContent.trim() || e.children.length > 3 || !shown(e) || skip(e)) continue
+    const own = rgba(getComputedStyle(e).backgroundColor), p = e.parentElement && bgOf(e.parentElement)
+    const b = e.getBoundingClientRect()
+    if (own[3] > 250 && p && lum(own) > 0.5 && lum(p) < 0.1 && b.width < 600 && b.height < 120) r.light.push(`${name(e)} "${e.textContent.trim().slice(0, 24)}" bg rgb(${own.slice(0, 3)}) on dark rgb(${p.slice(0, 3)})`)
+  }
   r.anims = document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().duration > 200).length
   return r
 }
@@ -197,6 +199,7 @@ async function layout(c, path, tag = '') {
   const line = (x) => `${x.sel} "${x.text}" ${x.ratio}:1 (needs ${x.need})`
   if (both.length) add({ ...base, sev: both.some((x) => x.ratio < 3) ? 'medium' : 'low', cat: 'contrast', title: 'Text contrast below WCAG AA', detail: both.map(line).join('; ') })
   if (darkOnly.length) add({ ...base, sev: darkOnly.some((x) => x.ratio < 3) ? 'medium' : 'low', cat: 'dark-mode', title: 'Dark mode: text contrast below WCAG AA', detail: darkOnly.map(line).join('; ') })
+  if (scheme === 'dark' && r.light.length) add({ ...base, sev: 'medium', cat: 'dark-mode', title: 'Dark mode: light surfaces left on a dark background', detail: r.light.join('; ') })
   if (scheme === 'dark' && !tag && r.bg && lightBg.get(key) === r.bg) add({ ...base, sev: 'low', cat: 'dark-mode', title: 'No dark theme: background is identical under prefers-color-scheme: dark', detail: `sampled backgrounds ${r.bg} are identical in both schemes` })
   return r.anims
 }
