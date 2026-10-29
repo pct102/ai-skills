@@ -11,9 +11,9 @@ Be the second pair of eyes. A developer, or an autopilot run, says "fixed". This
 
 ## Input
 
-`<issue url> [--env <deployed url>]`. The env URL is the deployed environment where the fix is live (e.g. the dev preview). Without it, test the local dev server as before. Tools: `${AI_SKILLS_HOME}/tools/ui-qa.mjs`, `${AI_SKILLS_HOME}/tools/sdlc-issue.mjs` (comment with images, labels, close).
+`<issue url> [--env <deployed url>]`. The env URL is the deployed environment where the fix is live (e.g. the dev preview). Without the flag, read `QA_ENV_URL` from the project's `./.sdlc/autopilot.env` (`grep '^QA_ENV_URL=' .sdlc/autopilot.env`); the user set it there to name the env, so it carries the same permission as `--env`. With neither, test the local dev server. Tools: `${AI_SKILLS_HOME}/tools/ui-qa.mjs`, `${AI_SKILLS_HOME}/tools/sdlc-issue.mjs` (comment with images, labels, close).
 
-Naming the env URL is the user's permission to test **that one host** with `--allow-remote`. Never extend it to another host, and never to anything that looks like production. ui-qa stays in safe mode there: GET only, no forms, destructive controls skipped.
+Naming the env URL (flag or `QA_ENV_URL`) is the user's permission to test **that one host** with `--allow-remote`. Never extend it to another host, and never to anything that looks like production. ui-qa stays in safe mode there: GET only, no forms, destructive controls skipped.
 
 ## Workflow
 
