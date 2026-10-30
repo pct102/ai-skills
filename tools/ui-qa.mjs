@@ -4,6 +4,7 @@
 //   ui-qa.mjs <url> [--depth 1] [--max-pages 5] [--max-clicks 25] [--out <dir>] [--auth <storageState.json>]
 //                   [--issue-min medium|low|high] [--max-issues 8] [--headed] [--allow-remote] [--allow-destructive]
 //                   [--ignore <css selectors>] [--ignore-console <regex>]   (defaults skip Next.js dev overlay + React's script-tag dev warning)
+//                   [--impeccable] [--impeccable-version 4.8.0]   (opt-in design pass by the third-party `impeccable detect`, via npx)
 //   ui-qa.mjs file <out-dir> [--with-images] [--new-only]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
 //     --with-images (GitHub): also upload the worst findings' screenshots with the `gh image` extension and post them as an
 //     "evidence" comment. That extension signs in with your BROWSER's GitHub session cookie (unofficial endpoint): opt-in only.
@@ -86,12 +87,14 @@ const LABEL = {
   'dark-mode': 'Dark mode problems', 'click-blocked': 'Controls blocked by overlays', 'layout-shift': 'Layout shift while scrolling',
   'touch-target': 'Small touch targets', focus: 'Missing focus indicators', motion: 'Motion and transition issues',
   unresponsive: 'Controls with no visible response', dialog: 'Dialogs that do not close with Esc',
+  design: 'Design quality problems (Impeccable)',
 }
 const stats = { pages: 0, loads: 0, clicks: 0, hovers: 0, selects: 0, drags: 0, tabs: 0, resizes: 0 }
 
 // ---------- findings (deduped by category + title + path; contexts merged)
 const found = new Map()
 const add = (f) => {
+  f = { ...f, title: f.title.replace(/([?&])_rsc=[\w-]+&?/g, '$1').replace(/[?&]$/, '') } // Next.js prefetch tokens change every load
   const k = `${f.cat}|${f.title}|${f.path}`, e = found.get(k)
   if (e) e.ctxs.add(f.ctx); else found.set(k, { ...f, ctxs: new Set([f.ctx]) })
 }
@@ -297,6 +300,26 @@ async function interact(c, path, url) {
   }
 }
 
+// ---------- Impeccable (https://github.com/pbakaus/impeccable, Apache-2.0): 60+ deterministic design rules run on the rendered page by a
+// pinned, third-party CLI (npx runs its native binary). Real defects it sees and we do not (text over images, 8px text, skipped headings)
+// become medium; style opinions ("AI slop": gradient text, glows...) stay low so they never file an issue by default.
+const IMP_VER = flag('impeccable-version', process.env.IMPECCABLE_VERSION || '4.8.0')
+const IMP_REAL = new Set(['low-contrast', 'gray-on-color', 'text-occlusion', 'text-overflow', 'clipped-overflow-container', 'broken-image', 'script-error', 'first-viewport-column-overflow', 'content-hidden-at-rest', 'body-text-viewport-edge'])
+let impOff = has('impeccable') ? '' : 'off (add --impeccable; about 50 s per page)'
+function impeccable(url, path) {
+  if (impOff) return
+  const rules = new Map()
+  for (const vp of ['1280x800', '390x844']) {
+    const r = spawnSync('npx', ['--yes', `impeccable@${IMP_VER}`, 'detect', '--json', '--viewport', vp, url], { encoding: 'utf8', timeout: 120000 })
+    let list; try { list = JSON.parse(r.stdout) } catch { impOff = `impeccable@${IMP_VER} did not run (${(r.error?.message || r.stderr || 'no output').trim().split('\n')[0].slice(0, 100)})`; return }
+    for (const x of list) { const e = rules.get(x.antipattern) || { x, d: new Set(), vps: new Set() }; e.d.add(`${x.snippet} [${x.selector}]`); e.vps.add(vp); rules.set(x.antipattern, e) }
+  }
+  for (const [id, { x, d, vps }] of rules) add({
+    sev: IMP_REAL.has(id) ? 'medium' : 'low', cat: ['low-contrast', 'gray-on-color'].includes(id) ? 'contrast' : 'design', title: `${x.name} (${id})`, path, ctx: `impeccable-${[...vps].join('+')}`,
+    detail: `${x.category}/${x.severity}: ${[...d].slice(0, 3).join('; ')}${d.size > 3 ? ` (+${d.size - 3} more)` : ''}`, shot: `screens/${slug(path)}-desktop-light.png`,
+  })
+}
+
 // ---------- run
 const browser = await chromium.launch({ headless: !has('headed') }).catch((e) => die(1, `cannot start chromium: ${e.message.split('\n')[0]}. Try: npx playwright install chromium`))
 const clean = (u) => { const x = new URL(u); x.hash = ''; return x.href }
@@ -327,6 +350,7 @@ while (queue.length && stats.pages < MAX_PAGES) {
       if (light && (vp.n === 'desktop' || vp.n === 'mobile')) await interact(c, path, url)
     } finally { await c.ctx.close() }
   }
+  impeccable(url, path)
   if (anims) { // same page with prefers-reduced-motion: reduce
     const c = await open(browser, VIEWPORTS[3], 'light', { reducedMotion: 'reduce' })
     try {
@@ -347,20 +371,41 @@ writeFileSync(join(out, 'report.md'), [
   `# UI QA report — ${root.href}`, '', `Run: ${new Date().toISOString()} · ${safe ? 'safe mode (mutating requests blocked)' : 'DESTRUCTIVE MODE'}`,
   `Coverage: ${Object.entries(stats).map(([k, v]) => `${v} ${k}`).join(', ')}`, '',
   `**${count('high')} high · ${count('medium')} medium · ${count('low')} low**`, '', ...all.map(row), '',
-  '## Not covered', 'Business-logic correctness, forms (never filled or submitted), pages behind login (use --auth), canvas/WebGL content, drag on non-`draggable` elements.',
+  '## Not covered', ...(impOff && has('impeccable') ? [`Impeccable design pass: ${impOff}.`, ''] : []), 'Business-logic correctness, forms (never filled or submitted), pages behind login (use --auth), canvas/WebGL content, drag on non-`draggable` elements.',
 ].join('\n'))
 
+// One issue per AREA (what a fixer changes together), not per detector category: separate issues for one root cause get fixed by accident.
+const AREA = { 'js-exception': 'runtime', 'console-error': 'runtime', network: 'runtime', 'page-load': 'runtime', contrast: 'theme', 'dark-mode': 'theme',
+  responsive: 'layout', 'touch-target': 'layout', 'broken-image': 'layout', 'layout-shift': 'layout', 'click-blocked': 'interaction', unresponsive: 'interaction',
+  dialog: 'interaction', focus: 'interaction', motion: 'interaction', design: 'design' }
+const AREA_LABEL = { runtime: 'Runtime errors', theme: 'Color, contrast and dark mode problems', layout: 'Layout and responsive problems', interaction: 'Interaction and motion problems', design: 'Design quality problems' }
+const EXPECT = { 'js-exception': 'No uncaught exceptions while loading or using the page.', 'console-error': 'No errors in the browser console.', network: 'No failing requests (4xx/5xx).',
+  'page-load': 'The page loads with HTTP 200.', contrast: 'Text contrast of at least 4.5:1 (3:1 for large text) in light and dark themes.',
+  'dark-mode': 'In dark mode every surface, text and control follows the theme: no light surfaces and no low-contrast text left behind.',
+  responsive: 'No horizontal scroll at 375, 768, 1024 and 1440 px.', 'touch-target': 'Touch targets of at least 24x24 px (44 recommended).', 'broken-image': 'Every image loads.',
+  'layout-shift': 'Content does not jump while loading or scrolling.', 'click-blocked': 'Every control can be clicked, not covered by another element.',
+  unresponsive: 'Clicking a control gives visible feedback or navigates.', dialog: 'Dialogs close with Esc.', focus: 'Every tab stop shows a visible focus indicator.',
+  motion: 'Transitions stay under 800 ms and animations respect prefers-reduced-motion.', design: 'Basic typography and layout quality rules hold.' }
 const bySev = Object.keys(SEV).filter((s) => SEV[s] >= SEV[MIN])
-const groups = [...new Set(all.filter((f) => bySev.includes(f.sev)).map((f) => f.cat))].slice(0, MAX_ISSUES)
-const drafts = groups.map((cat, n) => {
-  const fs = all.filter((f) => f.cat === cat && bySev.includes(f.sev)), body = `issues/${String(n + 1).padStart(2, '0')}-${cat}.md`
+const areas = [...new Set(all.filter((f) => bySev.includes(f.sev)).map((f) => AREA[f.cat] || 'runtime'))]
+  .sort((x, y) => Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === y).map((f) => SEV[f.sev])) - Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === x).map((f) => SEV[f.sev]))).slice(0, MAX_ISSUES)
+const drafts = areas.map((area, n) => {
+  const fs = all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev)), body = `issues/${String(n + 1).padStart(2, '0')}-${area}.md`
+  const probs = new Map() // cat|title -> one problem listing every page it appears on
+  for (const f of fs) { const k = `${f.cat}|${f.title}`, e = probs.get(k) || { cat: f.cat, title: f.title, sev: f.sev, rows: [] }; e.rows.push(f); probs.set(k, e) }
+  const list = [...probs.values()].sort((x, y) => SEV[y.sev] - SEV[x.sev])
+  const pages = [...new Set(fs.map((f) => f.path))]
   writeFileSync(join(out, body), [
-    `Found by \`ui-qa\` on ${root.href} (${new Date().toISOString().slice(0, 10)}). Black-box run: no source was read.`, '',
-    ...fs.map(row), '', 'Screenshot paths are relative to the ui-qa report folder on the reporter\'s machine; filed with --with-images they are also attached in a comment.',
-    `Reproduce: \`node tools/ui-qa.mjs ${root.href}\``,
+    '## Summary', `A black-box UI check (\`ui-qa\`, no source read) of ${root.href} on ${new Date().toISOString().slice(0, 10)} found ${list.length} problem(s) in one area: **${AREA_LABEL[area]}**. They are filed together because they are usually fixed together: fix the shared cause once (a global style, a theme token, a shared component) and check every item below before marking it ready.`, '',
+    `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, '', '## Problems', '',
+    ...list.flatMap((q, i) => [`### ${i + 1}. ${q.title} (${q.sev})`, `- **Expected:** ${EXPECT[q.cat] || 'No defect.'}`,
+      ...q.rows.map((f) => `- \`${f.path}\` · ${f.ctxs.join(', ')}${f.detail ? ` · ${f.detail}` : ''}${f.shot ? ` · screenshot \`${f.shot}\`` : ''}`), '']),
+    '## How to reproduce', `\`node tools/ui-qa.mjs ${root.href}\`. Open the page at the listed viewport and theme (the context names are viewport-theme, for example mobile-dark).`, '',
+    '## Notes for the fixer', '- Search for siblings: the same cause often shows on other pages, themes or components than the ones listed.', '- Do not close this issue yourself: a separate QA pass verifies the fix on the deployed environment.', '',
+    '_Screenshot paths are relative to the ui-qa report folder on the reporter\'s machine; with --with-images they are attached in a comment._',
   ].join('\n'))
   const shots = [...new Set(fs.filter((f) => f.shot && existsSync(join(out, f.shot))).map((f) => f.shot))].slice(0, 4) // already worst-first
-  return { title: `[ui-qa] ${LABEL[cat] || cat} on ${root.host}`, body, findings: fs.length, shots }
+  return { title: `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, body, findings: list.length, shots }
 })
 writeFileSync(join(out, 'issues.json'), JSON.stringify(drafts, null, 2))
 

@@ -67,7 +67,7 @@ echo '[{"number":6,"title":"t6","labels":[{"name":"auto-fix"},{"name":"fix-attem
 echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN"}' > "$GH_FX/issueview.json"
 echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-open.json"
 pr 9 "$F1" 10 "$OKCI"
-: > "$GH_LOG"; node "$SD" dev >/dev/null 2>&1
+: > "$GH_LOG"; node "$SD" fix >/dev/null 2>&1
 check "dev: an issue out of attempts goes to needs-human" "1" "$(calls 'issue edit 6 .*--add-label needs-human')"
 check "dev: the agent ran once, in a worktree, with the issue URL" "1" "$(grep -c 'issue-5|Use the pct102-dev-fix skill on https://github.com/o/r/issues/5' "$T/agent.log")"
 check "dev: the ready-for-test fix PR was gate-merged" "1" "$(calls 'pr merge 9 --repo o/r --squash')"
@@ -76,15 +76,17 @@ check "dev: the worktree was removed" "0" "$(git worktree list | grep -c 'issue-
 # qa stage: nothing runs until the fix PR is merged and dev is deployed
 echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"
 echo '[]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
-node "$SD" qa >/dev/null 2>&1;                                  check "qa: fix not merged -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
+node "$SD" verify >/dev/null 2>&1;                                  check "qa: fix not merged -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
 echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-merged.json"
-DEPLOY=pending node "$SD" qa >/dev/null 2>&1;                   check "qa: dev not deployed -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
-node "$SD" qa >/dev/null 2>&1;                                  check "qa: merged and deployed -> one agent run with --env and --close" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
+DEPLOY=pending node "$SD" verify >/dev/null 2>&1;                   check "qa: dev not deployed -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
+node "$SD" verify >/dev/null 2>&1;                                  check "qa: merged and deployed -> one agent run with --env and --close" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
+
+check "fix wrote a report file naming the issue" "1" "$(ls .sdlc/daily/fix-*.md 2>/dev/null | head -1 | xargs grep -c '#5' | awk '{print ($1>0)}')"
 
 # settings
 rm .sdlc/autopilot.env
-check "scout: missing QA_ENV_URL is a usage error" "3" "$(node "$SD" scout >/dev/null 2>&1; echo $?)"
-check "dev: missing AGENT_CMD is a usage error" "3" "$(node "$SD" dev >/dev/null 2>&1; echo $?)"
+check "check: missing QA_ENV_URL is a usage error" "3" "$(node "$SD" check >/dev/null 2>&1; echo $?)"
+check "fix: missing AGENT_CMD is a usage error" "3" "$(node "$SD" fix >/dev/null 2>&1; echo $?)"
 check "unknown stage is a usage error" "3" "$(node "$SD" nope >/dev/null 2>&1; echo $?)"
 
 echo; echo "passed=$pass failed=$fail"; [ "$fail" -eq 0 ]

@@ -1,18 +1,18 @@
 #!/usr/bin/env node
-// The daily QA loop for one project. Run from the project root (the project's .sdlc/autopilot.env is read).
-//   sdlc-daily.mjs scout          crawl QA_ENV_URL (+ QA_URLS) with ui-qa and file NEW issues (labels ui-qa, auto-fix)
-//   sdlc-daily.mjs dev            for each open auto-fix issue, run an agent with pct102-dev-fix, then gate-merge its PR
-//   sdlc-daily.mjs qa             for each ready-for-test issue whose fix is merged and deployed, run an agent with pct102-qa-verify --close
+// The QA loop for one project, run by hand like autopilot: each stage works through its queue, then stops and writes a report.
+// Run from the project root (the project's .sdlc/autopilot.env is read).
+//   sdlc-daily.mjs check [--dry-run]   ui-qa over QA_ENV_URL (+ QA_URLS): files NEW issues (labels ui-qa, auto-fix), with screenshots
+//   sdlc-daily.mjs fix            each open auto-fix issue: an agent runs pct102-dev-fix (PR into PR_BASE), then the merge gate decides
+//   sdlc-daily.mjs verify         each ready-for-test issue whose fix is merged and deployed: an agent runs pct102-qa-verify --close
 //   sdlc-daily.mjs merge <pr>     the merge gate alone
-//   sdlc-daily.mjs install        write launchd plists for the three stages (prints the launchctl lines; loads nothing)
-// The stages are driven by issue labels, not by the clock, so a late or repeated run is harmless. Only scripts run here;
-// tokens are spent only inside the agent each stage launches (AGENT_CMD). Settings: see autopilot.env.example.
+// Stages follow issue labels, so they can be rerun safely. Only scripts run here; tokens are spent inside the agent (AGENT_CMD) that
+// fix and verify launch once per issue. Each run writes .sdlc/daily/<stage>-<date>-<time>.md: what was filed, fixed or verified, with
+// links and the image count of every issue. Settings: see autopilot.env.example.
 // Exit: 0 done | 1 a stage had errors | 3 usage or missing setting
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { homedir } from 'node:os'
 import { setting } from './lib/setting.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = process.cwd(), SELF = join(HERE, 'sdlc-daily.mjs')
@@ -24,7 +24,8 @@ const list = (k, d = '') => (setting(k) || d).split(/[\s,]+/).filter(Boolean)
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const day = new Date().toLocaleDateString('sv') // yyyy-mm-dd, local
 const dailyDir = join(ROOT, '.sdlc', 'daily'); mkdirSync(dailyDir, { recursive: true })
-const say = (s) => { console.log(s); appendFileSync(join(dailyDir, `${day}.md`), `- ${new Date().toTimeString().slice(0, 5)} ${cmd}: ${s}\n`) }
+const lines = [], cards = []
+const say = (s) => { console.log(s); lines.push(`- ${new Date().toTimeString().slice(0, 5)} ${s}`) }
 let errors = 0
 
 const ghOut = (a) => { const r = run('gh', a); if (r.status !== 0) throw new Error(`gh ${a.slice(0, 3).join(' ')}: ${(r.stderr || '').trim().slice(0, 200)}`); return r.stdout }
@@ -35,6 +36,18 @@ const PROTECTED = list('PROTECTED_BRANCHES', 'main master')
 const issueUrl = (R, n) => `https://github.com/${R}/issues/${n}`
 const tag = (R, n, add, remove = '') => run('node', [join(HERE, 'sdlc-issue.mjs'), 'label', '--url', issueUrl(R, n), ...(add ? ['--add', add] : []), ...(remove ? ['--remove', remove] : [])])
 const note = (R, n, body) => run('node', [join(HERE, 'sdlc-issue.mjs'), 'comment', '--url', issueUrl(R, n), '--body', body])
+const IMG = /!\[[^\]]*\]\((https:\/\/[^)\s]+)\)/g
+// A report entry for one issue: link, state, labels, how many images are attached across the body and comments (0 = say so), optional full text.
+function card(R, n, { full = false, note: extra = '' } = {}) {
+  try {
+    const i = ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'title,url,state,labels,body,comments'])
+    const imgs = [i.body, ...i.comments.map((c) => c.body)].flatMap((t) => [...(t || '').matchAll(IMG)].map((m) => m[1]))
+    cards.push([`### #${n} ${i.title}`, `- ${i.url} · ${i.state} · labels: ${i.labels.map((l) => l.name).join(', ') || '-'}`,
+      `- images attached: ${imgs.length}${imgs.length ? '' : ' — NONE: the upload failed or was skipped, attach screenshots by hand'}`, ...(extra ? [`- ${extra}`] : []),
+      ...(full ? ['', i.body.split('\n').map((l) => `> ${l}`).join('\n')] : []), ''].join('\n'))
+    return imgs.length
+  } catch (e) { cards.push(`### #${n}\n- could not read the issue: ${e.message}\n`); return 0 }
+}
 const issues = (R, label) => ghJson(['issue', 'list', '--repo', R, '--state', 'open', '--label', label, '--json', 'number,title,labels', '--limit', '100'])
   .map((i) => ({ ...i, labels: i.labels.map((l) => l.name) }))
 const prFor = (R, n, state) => ghJson(['pr', 'list', '--repo', R, '--state', state, '--base', BASE, '--json', 'number,headRefName,body,title', '--limit', '100'])
@@ -85,24 +98,31 @@ function merge(R, pr, issue) {
 }
 
 // ---------- stages
-function scout() {
+function check() {
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
-  const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 8), out = join(ROOT, '.sdlc', 'qa-scout', day)
+  const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 15), out = join(ROOT, '.sdlc', 'qa-check', day)
   const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25))],
     ...list('QA_URLS').map((u) => [new URL(u, origin).href, '--depth', '0', '--max-pages', '1'])]
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
-  let filed = 0
+  let filed = 0; const newIssues = []
   jobs.forEach(([url, ...flags], i) => {
     if (filed >= cap) return
     const dir = join(out, String(i)), r = run('node', [join(HERE, 'ui-qa.mjs'), url, '--allow-remote', '--max-issues', String(cap), '--out', dir, ...flags])
     if (r.status > 1 || r.error) { errors++; return say(`ui-qa failed on ${url}: ${(r.stderr || '').trim().split('\n').pop()}`) }
-    const f = run('node', [join(HERE, 'ui-qa.mjs'), 'file', dir, '--new-only'], { env: { ...process.env, ISSUE_TRACKER: 'github', ISSUE_GITHUB_REPO: R, ISSUE_LABELS: 'ui-qa,auto-fix' } })
-    for (const l of f.stdout.split('\n').filter((x) => /^filed:/.test(x))) { filed++; say(`new issue ${l}`) }
+    if (process.argv.includes('--dry-run')) { // show what would be filed, file nothing
+      for (const d of JSON.parse(readFileSync(join(dir, 'issues.json'), 'utf8'))) { say(`draft: ${d.title} (${d.findings} problem(s), ${d.shots.length} screenshot(s))`); cards.push(`### DRAFT ${d.title}\n\n${readFileSync(join(dir, d.body), 'utf8').split('\n').map((l) => `> ${l}`).join('\n')}\n`) }
+      return
+    }
+    const f = run('node', [join(HERE, 'ui-qa.mjs'), 'file', dir, '--new-only', '--with-images'], { env: { ...process.env, ISSUE_TRACKER: 'github', ISSUE_GITHUB_REPO: R, ISSUE_LABELS: 'ui-qa,auto-fix' } })
+    const out2 = `${f.stdout}\n${f.stderr}`
+    for (const m of out2.matchAll(/^filed: #(\d+)/gm)) { filed++; say(`new issue #${m[1]}`); newIssues.push(m[1]) }
+    for (const m of out2.matchAll(/^already filed: #(\d+)/gm)) say(`#${m[1]} already open, left alone`)
   })
-  say(`scout done: ${jobs.length} run(s), ${filed} new issue(s)`)
+  for (const n of newIssues) card(R, n, { full: true })
+  say(`check done: ${jobs.length} run(s), ${filed} new issue(s)`)
 }
 
-function dev() {
+function fix() {
   agentCmd()
   const R = repo(), skip = ['ready-for-test', 'needs-human', 'verified'], maxTry = num('MAX_FIX_ATTEMPTS', 2)
   const todo = issues(R, 'auto-fix').filter((i) => !i.labels.some((l) => skip.includes(l))).slice(0, num('MAX_DEV_ISSUES', 5))
@@ -111,7 +131,7 @@ function dev() {
   // ponytail: one issue at a time. dev-fix starts the app for before/after evidence, so parallel fixers would fight over ports; add worktree-per-agent parallelism if the queue grows.
   for (const i of todo) {
     const tries = Math.max(0, ...i.labels.map((l) => +(l.match(/^fix-attempt-(\d+)$/) || [])[1] || 0))
-    if (tries >= maxTry) { tag(R, i.number, 'needs-human', 'needs-fix'); note(R, i.number, `Gave up after ${tries} automatic fix attempt(s). A person needs to look at it.`); say(`#${i.number}: ${tries} attempts, handed to a person`); continue }
+    if (tries >= maxTry) { tag(R, i.number, 'needs-human', 'needs-fix'); note(R, i.number, `Gave up after ${tries} automatic fix attempt(s). A person needs to look at it.`); say(`#${i.number}: ${tries} attempts, handed to a person`); card(R, i.number, { note: `gave up after ${tries} attempts` }); continue }
     run('gh', ['label', 'create', `fix-attempt-${tries + 1}`, '--repo', R, '--color', 'ededed']); tag(R, i.number, `fix-attempt-${tries + 1}`)
     const wt = join(ROOT, '.sdlc', 'wt', `issue-${i.number}`)
     run('git', ['worktree', 'remove', '--force', wt]); rmSync(wt, { recursive: true, force: true })
@@ -122,12 +142,12 @@ function dev() {
     agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.`, `dev-${i.number}`, `#${i.number}`)
     run('git', ['worktree', 'remove', '--force', wt])
     const now = issues(R, 'auto-fix').find((x) => x.number === i.number), pr = prFor(R, i.number, 'open')
-    if (now?.labels.includes('ready-for-test') && pr) merge(R, pr.number, i.number)
-    else if (!now?.labels.includes('needs-human')) say(`#${i.number}: no ready-for-test result (attempt ${tries + 1}); it stays queued`)
+    if (now?.labels.includes('ready-for-test') && pr) { const ok = merge(R, pr.number, i.number); card(R, i.number, { note: `PR #${pr.number} ${ok ? 'merged into ' + BASE : 'NOT merged (see the log above)'}` }) }
+    else { say(`#${i.number}: ${now?.labels.includes('needs-human') ? 'handed to a person' : `no ready-for-test result (attempt ${tries + 1}); it stays queued`}`); card(R, i.number, { note: 'not fixed in this run' }) }
   }
 }
 
-function qa() {
+function verify() {
   agentCmd()
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
   const R = repo(), todo = issues(R, 'ready-for-test')
@@ -135,44 +155,25 @@ function qa() {
   const deploy = ghOut(['api', `repos/${R}/commits/${BASE}/status`, '--jq', '.state']).trim()
   for (const i of todo) {
     // cheap pre-checks before any tokens are spent; qa-verify repeats them on its own
-    if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); continue }
-    if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); continue }
+    if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
+    if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
     say(`#${i.number}: ${i.title}`)
     agent(ROOT, `Use the pct102-qa-verify skill on ${issueUrl(R, i.number)} --env ${env} --close. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.`, `qa-${i.number}`, `#${i.number}`)
     const after = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'state,labels'])
-    say(`#${i.number}: now ${after.state}, labels ${after.labels.map((l) => l.name).join(',') || '-'}`)
+    say(`#${i.number}: now ${after.state}, labels ${after.labels.map((l) => l.name).join(',') || '-'}`); card(R, i.number)
   }
 }
 
-function install() {
-  const dir = join(homedir(), 'Library', 'LaunchAgents'), name = basename(ROOT).replace(/[^\w-]/g, '')
-  mkdirSync(dir, { recursive: true })
-  for (const [stage, key, d] of [['scout', 'SCOUT_AT', '05:00'], ['dev', 'DEV_AT', '09:00'], ['qa', 'QA_AT', '15:00']]) {
-    const [h, m] = (setting(key) || d).split(':').map(Number), label = `com.pct102.sdlc-daily.${name}.${stage}`, f = join(dir, `${label}.plist`)
-    writeFileSync(f, `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>${label}</string>
-<key>ProgramArguments</key><array><string>${process.execPath}</string><string>${SELF}</string><string>${stage}</string></array>
-<key>WorkingDirectory</key><string>${ROOT}</string>
-<key>EnvironmentVariables</key><dict><key>PATH</key><string>${process.env.PATH}</string><key>HOME</key><string>${homedir()}</string></dict>
-<key>StartCalendarInterval</key><dict><key>Hour</key><integer>${h}</integer><key>Minute</key><integer>${m || 0}</integer></dict>
-<key>StandardOutPath</key><string>${join(dailyDir, `launchd-${stage}.log`)}</string>
-<key>StandardErrorPath</key><string>${join(dailyDir, `launchd-${stage}.log`)}</string>
-</dict></plist>
-`)
-    console.log(`wrote ${f}\n  load:   launchctl bootstrap gui/$(id -u) ${f}\n  remove: launchctl bootout gui/$(id -u) ${f}`)
-  }
-}
-
-if (!['scout', 'dev', 'qa', 'merge', 'install'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs scout | dev | qa | merge <pr> | install')
-if (cmd === 'install') { install(); process.exit(0) }
+if (!['check', 'fix', 'verify', 'merge'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs check | fix | verify | merge <pr>')
 if (cmd === 'merge') { if (!/^\d+$/.test(arg || '')) die(3, 'merge <pr number>'); process.exit(merge(repo(), +arg, 0) ? 0 : 1) }
 
 // one run of the loop per project at a time (a long stage must not overlap the next trigger)
 const lock = join(dailyDir, 'lock'), alive = (p) => { try { process.kill(p, 0); return true } catch { return false } }
 if (existsSync(lock) && alive(+readFileSync(lock, 'utf8'))) die(0, `another stage is running (pid ${readFileSync(lock, 'utf8')}), skipped`)
 writeFileSync(lock, String(process.pid))
-try { ({ scout, dev, qa })[cmd]() } catch (e) { errors++; say(`stopped: ${e.message}`) } finally { rmSync(lock, { force: true }) }
+try { ({ check, fix, verify })[cmd]() } catch (e) { errors++; say(`stopped: ${e.message}`) } finally { rmSync(lock, { force: true }) }
+const report = join(dailyDir, `${cmd}-${day}-${new Date().toTimeString().slice(0, 5).replace(':', '')}.md`)
+writeFileSync(report, [`# ${basename(ROOT)} · ${cmd} · ${day}`, '', errors ? `**${errors} error(s) in this run.**` : 'No errors in this run.', '', '## Log', ...lines, '', '## Issues', ...(cards.length ? cards : ['(none)']), ''].join('\n'))
+console.log(`report: ${report}`)
 if (process.platform === 'darwin' && setting('DAILY_NOTIFY') !== '0') run('osascript', ['-e', `display notification "${cmd}: ${errors ? errors + ' error(s), see .sdlc/daily' : 'done'}" with title "${basename(ROOT)} daily"`])
 process.exit(errors ? 1 : 0)
