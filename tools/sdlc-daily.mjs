@@ -101,8 +101,8 @@ function merge(R, pr, issue) {
 function check() {
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
   const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 15), out = join(ROOT, '.sdlc', 'qa-check', day)
-  const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25))],
-    ...list('QA_URLS').map((u) => [new URL(u, origin).href, '--depth', '0', '--max-pages', '1'])]
+  const seeds = list('QA_URLS').flatMap((u) => ['--seed', new URL(u, origin).href])
+  const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds]] // one run: one set of issues, no same-title drafts
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
   let filed = 0; const newIssues = []
   jobs.forEach(([url, ...flags], i) => {

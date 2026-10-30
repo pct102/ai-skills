@@ -4,7 +4,7 @@
 //   ui-qa.mjs <url> [--depth 1] [--max-pages 5] [--max-clicks 25] [--out <dir>] [--auth <storageState.json>]
 //                   [--issue-min medium|low|high] [--max-issues 8] [--headed] [--allow-remote] [--allow-destructive]
 //                   [--ignore <css selectors>] [--ignore-console <regex>]   (defaults skip Next.js dev overlay + React's script-tag dev warning)
-//                   [--impeccable] [--impeccable-version 4.8.0]   (opt-in design pass by the third-party `impeccable detect`, via npx)
+//                   [--seed <url|path>]... (extra same-origin pages, tested without crawling on)  [--impeccable] [--impeccable-version 4.8.0]   (opt-in design pass by the third-party `impeccable detect`, via npx)
 //   ui-qa.mjs file <out-dir> [--with-images] [--new-only]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
 //     --with-images (GitHub): also upload the worst findings' screenshots with the `gh image` extension and post them as an
 //     "evidence" comment. That extension signs in with your BROWSER's GitHub session cookie (unofficial endpoint): opt-in only.
@@ -324,6 +324,10 @@ function impeccable(url, path) {
 const browser = await chromium.launch({ headless: !has('headed') }).catch((e) => die(1, `cannot start chromium: ${e.message.split('\n')[0]}. Try: npx playwright install chromium`))
 const clean = (u) => { const x = new URL(u); x.hash = ''; return x.href }
 const queue = [{ url: clean(root.href), d: 0 }], seen = new Set([queue[0].url])
+for (const [i, v] of argv.entries()) { // --seed <url|path>: extra pages to test as they are (not crawled further), same origin only
+  if (v !== '--seed' || !argv[i + 1]) continue
+  try { const u = clean(new URL(argv[i + 1], root.origin).href); if (sameOrigin(u) && !seen.has(u)) { seen.add(u); queue.push({ url: u, d: DEPTH }) } } catch {}
+}
 while (queue.length && stats.pages < MAX_PAGES) {
   const { url, d } = queue.shift(), path = short(url); stats.pages++
   console.error(`ui-qa: [${stats.pages}/${MAX_PAGES}] ${path}`)
