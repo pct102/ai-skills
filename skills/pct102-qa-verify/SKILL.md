@@ -40,6 +40,10 @@ Naming the env URL (flag or `QA_ENV_URL`) is the user's permission to test **tha
    - Without that request, or without proof the fix is live, do not close; tell the user it is ready to close.
 8. **Report** in five lines or fewer: verdict, environment, what was checked, what is wrong, comment link, whether it was closed.
 
+## Output folder
+
+`.sdlc/qa-verify/` holds generated evidence. Create it with a `.gitignore` containing `*` so it never shows up in the project's git status; never commit it.
+
 ## Limits
 
 Black-box, as `pct102-ui-qa`: no business-logic checks, no canvas/WebGL, no login without `--auth`. The sweep covers up to five pages, so a large app needs the pages named. An unreviewed page is "not covered", never "ok".

@@ -31,6 +31,10 @@ Tools: `${AI_SKILLS_HOME}/tools/ui-qa.mjs` (before/after evidence) and `${AI_SKI
 10. **Set the status.** (When no human can answer, e.g. a daily-loop run, never ask questions: if blocked, comment why and add `needs-human`.) `node ${AI_SKILLS_HOME}/tools/sdlc-issue.mjs label --url <url> --add ready-for-test --remove needs-fix`. Never close the issue: closing is QA's and the user's call.
 11. **Report** in five lines or fewer: what was wrong, what changed, checks, commit, comment link.
 
+## Output folder
+
+`.sdlc/dev-fix/` holds generated evidence. Create it with a `.gitignore` containing `*` so it never shows up in the project's git status; never commit it.
+
 ## Stop conditions
 
 Out of scope (step 2), cannot reproduce (step 4), checks fail after the fix, or the fix needs a decision. In each case: no ready-for-test label, no claim of success, say exactly what blocked.

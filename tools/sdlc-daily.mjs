@@ -24,6 +24,9 @@ const list = (k, d = '') => (setting(k) || d).split(/[\s,]+/).filter(Boolean)
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const day = new Date().toLocaleDateString('sv') // yyyy-mm-dd, local
 const dailyDir = join(ROOT, '.sdlc', 'daily'); mkdirSync(dailyDir, { recursive: true })
+for (const d of ['daily', 'qa-check', 'wt']) { // generated output: keep it out of the project's git status
+  mkdirSync(join(ROOT, '.sdlc', d), { recursive: true }); writeFileSync(join(ROOT, '.sdlc', d, '.gitignore'), '*\n')
+}
 const lines = [], cards = []
 const say = (s) => { console.log(s); lines.push(`- ${new Date().toTimeString().slice(0, 5)} ${s}`) }
 let errors = 0
