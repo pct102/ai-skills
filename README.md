@@ -12,7 +12,8 @@ Personal AI software delivery skills.
 - `pct102-frontend-patterns`: frontend component selection, integration, motion, accessibility, and visual QA
 - `pct102-ui-qa`: black-box UI QA from a URL (clicks, dropdowns, scroll, resize, drag, dark mode, responsive, transitions) with GitHub issue drafts
 - `pct102-dev-fix`: fixes one small GitHub issue from its URL, comments before/after evidence, sets `ready-for-test` (no autopilot)
-- `pct102-qa-verify`: independently verifies a `ready-for-test` issue, sweeps for sibling defects, sets `verified` or `needs-fix`
+- `pct102-qa-verify`: independently verifies a `ready-for-test` issue (on the local app or a deployed env URL), sweeps for sibling defects, sets `verified` or `needs-fix`, and closes it with `--close` when the fix is live
+- `pct102-daily-loop`: the unattended daily loop: scout (ui-qa crawl → issues), dev (dev-fix per issue → PR → gate-merge into dev), qa (qa-verify → close), run by `tools/sdlc-daily.mjs` and launchd
 
 `tools/` is the part that decides whether work actually passed. See **The machine layer**
 below.
@@ -98,6 +99,7 @@ skills/
   pct102-ui-qa/
   pct102-dev-fix/
   pct102-qa-verify/
+  pct102-daily-loop/
   archify/                   ← vendored renderer for diagrams (MIT, pinned; see VENDORED.md)
 references/
   dependencies.md

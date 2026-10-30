@@ -1,0 +1,18 @@
+# Minimal CI for the daily loop's merge gate (tools/sdlc-daily.mjs merge). Copy to <project>/.github/workflows/ci.yml.
+# The job name `ci` is what the gate looks for: any check not named like Vercel must pass. No lint here on purpose
+# (add it once the project's lint is clean). Add your own test command if the project has a unit-test script.
+name: CI
+on:
+  pull_request:
+    branches: [dev, main]
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test --if-present

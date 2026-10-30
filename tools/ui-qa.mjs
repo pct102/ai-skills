@@ -4,7 +4,7 @@
 //   ui-qa.mjs <url> [--depth 1] [--max-pages 5] [--max-clicks 25] [--out <dir>] [--auth <storageState.json>]
 //                   [--issue-min medium|low|high] [--max-issues 8] [--headed] [--allow-remote] [--allow-destructive]
 //                   [--ignore <css selectors>] [--ignore-console <regex>]   (defaults skip Next.js dev overlay + React's script-tag dev warning)
-//   ui-qa.mjs file <out-dir> [--with-images]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
+//   ui-qa.mjs file <out-dir> [--with-images] [--new-only]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
 //     --with-images (GitHub): also upload the worst findings' screenshots with the `gh image` extension and post them as an
 //     "evidence" comment. That extension signs in with your BROWSER's GitHub session cookie (unofficial endpoint): opt-in only.
 //     A rerun that finds the issue already open adds a comment with the new run's findings instead of staying silent.
@@ -43,7 +43,9 @@ if (argv[0] === 'file') {
     const said = r.stdout.trim() || r.stderr.trim(); console.log(said)
     if (r.status) { bad = 1; continue }
     const m = said.match(/(already filed|filed): (#\d+)/); if (!gh || !m) continue
-    const again = m[1] === 'already filed', shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : []
+    const again = m[1] === 'already filed'
+    if (again && has('new-only')) continue // unattended runs: an open issue already tracks it, no daily comment
+    const shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : []
     if (!again && !shots.length) continue // a fresh issue needs no comment unless it carries images
     const date = new Date().toISOString().slice(0, 10)
     const text = again ? `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}` : `UI QA evidence (${date}).`
