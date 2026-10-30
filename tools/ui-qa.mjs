@@ -5,10 +5,10 @@
 //                   [--issue-min medium|low|high] [--max-issues 8] [--headed] [--allow-remote] [--allow-destructive]
 //                   [--ignore <css selectors>] [--ignore-console <regex>]   (defaults skip Next.js dev overlay + React's script-tag dev warning)
 //                   [--seed <url|path>]... (extra same-origin pages, tested without crawling on)  [--impeccable] [--impeccable-version 4.8.0]   (opt-in design pass by the third-party `impeccable detect`, via npx)
-//   ui-qa.mjs file <out-dir> [--with-images] [--new-only]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
+//   ui-qa.mjs file <out-dir> [--with-images]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
 //     --with-images (GitHub): also upload the worst findings' screenshots with the `gh image` extension and post them as an
 //     "evidence" comment. That extension signs in with your BROWSER's GitHub session cookie (unofficial endpoint): opt-in only.
-//     A rerun that finds the issue already open adds a comment with the new run's findings instead of staying silent.
+//     A rerun that finds the issue already open comments only the findings that issue does not list yet (silent when none).
 //
 // Per page: 4 viewports x light/dark -> overflow, small touch targets, broken images, text contrast, dark-mode gaps, screenshots.
 // On the desktop + mobile light pass it also scrolls (layout shift), tabs (focus ring), clicks/hovers every safe control
@@ -30,6 +30,10 @@ const has = (k) => argv.includes('--' + k)
 const die = (code, msg) => { console.error(`ui-qa: ${msg}`); process.exit(code) }
 const HERE = dirname(fileURLToPath(import.meta.url))
 
+function renderProblems(list) {
+  return list.flatMap((q, i) => [`### ${i + 1}. ${q.title} (${q.sev})`, `- **Expected:** ${q.expected}`,
+    ...q.rows.map((f) => `- \`${f.path}\` · ${f.ctxs.join(', ')}${f.detail ? ` · ${f.detail}` : ''}${f.shot ? ` · screenshot \`${f.shot}\`` : ''}`), '']).join('\n')
+}
 if (argv[0] === 'file') {
   const dir = argv[1] || die(3, 'usage: ui-qa.mjs file <out-dir>')
   const list = existsSync(join(dir, 'issues.json')) ? JSON.parse(readFileSync(join(dir, 'issues.json'), 'utf8')) : die(3, `no issues.json in ${dir}`)
@@ -44,12 +48,17 @@ if (argv[0] === 'file') {
     const said = r.stdout.trim() || r.stderr.trim(); console.log(said)
     if (r.status) { bad = 1; continue }
     const m = said.match(/(already filed|filed): (#\d+)/); if (!gh || !m) continue
-    const again = m[1] === 'already filed'
-    if (again && has('new-only')) continue // unattended runs: an open issue already tracks it, no daily comment
-    const shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : []
-    if (!again && !shots.length) continue // a fresh issue needs no comment unless it carries images
-    const date = new Date().toISOString().slice(0, 10)
-    const text = again ? `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}` : `UI QA evidence (${date}).`
+    const again = m[1] === 'already filed', date = new Date().toISOString().slice(0, 10)
+    let shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : [], text = `UI QA evidence (${date}).`
+    if (again && i.problems) { // an open issue already tracks this area: say only what it does not list yet
+      const v = spawnSync('gh', ['issue', 'view', m[2].replace('#', ''), ...(setting('ISSUE_GITHUB_REPO') ? ['--repo', setting('ISSUE_GITHUB_REPO')] : []), '--json', 'body,comments'], { encoding: 'utf8' })
+      let seen = ''; try { const j = JSON.parse(v.stdout); seen = [j.body, ...j.comments.map((c) => c.body)].join('\n') } catch {}
+      const fresh = i.problems.map((q) => ({ ...q, rows: q.rows.filter((f) => !(seen.includes(q.title) && seen.includes('`' + f.path + '`'))) })).filter((q) => q.rows.length)
+      if (!fresh.length) { console.log(`  ${m[2]}: nothing new since the issue was filed`); continue }
+      text = `New ui-qa run on ${date}: ${fresh.reduce((n, q) => n + q.rows.length, 0)} finding(s) this issue does not list yet.\n\n${renderProblems(fresh)}`
+      shots = has('with-images') ? [...new Set(fresh.flatMap((q) => q.rows.map((f) => f.shot)).filter(Boolean))].slice(0, 4).map((x) => join(dir, x)).filter(existsSync) : []
+    } else if (again) text = `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}`
+    else if (!shots.length) continue // a fresh issue needs no comment unless it carries images
     const c = sdlc(['comment', '--key', m[2], '--body', text, ...shots.flatMap((x) => ['--image', x])])
     console.log([c.stdout, c.stderr].map((x) => x.trim()).filter(Boolean).join('\n')); if (c.status) bad = 1
   }
@@ -402,14 +411,13 @@ const drafts = areas.map((area, n) => {
   writeFileSync(join(out, body), [
     '## Summary', `A black-box UI check (\`ui-qa\`, no source read) of ${root.href} on ${new Date().toISOString().slice(0, 10)} found ${list.length} problem(s) in one area: **${AREA_LABEL[area]}**. They are filed together because they are usually fixed together: fix the shared cause once (a global style, a theme token, a shared component) and check every item below before marking it ready.`, '',
     `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, '', '## Problems', '',
-    ...list.flatMap((q, i) => [`### ${i + 1}. ${q.title} (${q.sev})`, `- **Expected:** ${EXPECT[q.cat] || 'No defect.'}`,
-      ...q.rows.map((f) => `- \`${f.path}\` · ${f.ctxs.join(', ')}${f.detail ? ` · ${f.detail}` : ''}${f.shot ? ` · screenshot \`${f.shot}\`` : ''}`), '']),
+    renderProblems(list),
     '## How to reproduce', `\`node tools/ui-qa.mjs ${root.href}\`. Open the page at the listed viewport and theme (the context names are viewport-theme, for example mobile-dark).`, '',
     '## Notes for the fixer', '- Search for siblings: the same cause often shows on other pages, themes or components than the ones listed.', '- Do not close this issue yourself: a separate QA pass verifies the fix on the deployed environment.', '',
     '_Screenshot paths are relative to the ui-qa report folder on the reporter\'s machine; with --with-images they are attached in a comment._',
   ].join('\n'))
   const shots = [...new Set(fs.filter((f) => f.shot && existsSync(join(out, f.shot))).map((f) => f.shot))].slice(0, 4) // already worst-first
-  return { title: `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, body, findings: list.length, shots }
+  return { title: `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
 })
 writeFileSync(join(out, 'issues.json'), JSON.stringify(drafts, null, 2))
 

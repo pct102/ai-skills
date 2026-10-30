@@ -110,16 +110,20 @@ function check() {
   let filed = 0; const newIssues = []
   jobs.forEach(([url, ...flags], i) => {
     if (filed >= cap) return
-    const dir = join(out, String(i)), r = run('node', [join(HERE, 'ui-qa.mjs'), url, '--allow-remote', '--max-issues', String(cap), '--out', dir, ...flags])
-    if (r.status > 1 || r.error) { errors++; return say(`ui-qa failed on ${url}: ${(r.stderr || '').trim().split('\n').pop()}`) }
+    const dir = join(out, String(i))
+    say(`crawling ${url} (up to ${flags[flags.indexOf('--max-pages') + 1]} pages, 8 views each; several minutes). Progress below.`)
+    const r = run('node', [join(HERE, 'ui-qa.mjs'), url, '--allow-remote', '--max-issues', String(cap), '--out', dir, ...flags], { stdio: ['ignore', 'pipe', 'inherit'] }) // inherit: show ui-qa's page-by-page progress
+    if (r.status > 1 || r.error) { errors++; return say(`ui-qa failed on ${url}: ${r.error?.message || `exit ${r.status}`}`) }
     if (process.argv.includes('--dry-run')) { // show what would be filed, file nothing
       for (const d of JSON.parse(readFileSync(join(dir, 'issues.json'), 'utf8'))) { say(`draft: ${d.title} (${d.findings} problem(s), ${d.shots.length} screenshot(s))`); cards.push(`### DRAFT ${d.title}\n\n${readFileSync(join(dir, d.body), 'utf8').split('\n').map((l) => `> ${l}`).join('\n')}\n`) }
       return
     }
-    const f = run('node', [join(HERE, 'ui-qa.mjs'), 'file', dir, '--new-only', '--with-images'], { env: { ...process.env, ISSUE_TRACKER: 'github', ISSUE_GITHUB_REPO: R, ISSUE_LABELS: 'ui-qa,auto-fix' } })
+    const f = run('node', [join(HERE, 'ui-qa.mjs'), 'file', dir, '--with-images'], { env: { ...process.env, ISSUE_TRACKER: 'github', ISSUE_GITHUB_REPO: R, ISSUE_LABELS: 'ui-qa,auto-fix' } })
+    say('filing issues...')
     const out2 = `${f.stdout}\n${f.stderr}`
     for (const m of out2.matchAll(/^filed: #(\d+)/gm)) { filed++; say(`new issue #${m[1]}`); newIssues.push(m[1]) }
-    for (const m of out2.matchAll(/^already filed: #(\d+)/gm)) say(`#${m[1]} already open, left alone`)
+    for (const m of out2.matchAll(/^already filed: #(\d+)/gm)) say(`#${m[1]} already open: new findings (if any) added as a comment`)
+    for (const m of out2.matchAll(/^ +#(\d+): nothing new/gm)) say(`#${m[1]}: nothing new`)
   })
   for (const n of newIssues) card(R, n, { full: true })
   say(`check done: ${jobs.length} run(s), ${filed} new issue(s)`)

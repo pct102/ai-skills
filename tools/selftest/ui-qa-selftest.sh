@@ -35,6 +35,7 @@ cat > "$T/bin/gh" <<'GH'
 case "$1 $2" in
   "--version "*) echo gh ;;
   "issue list") if [ -s "$GH_DB" ]; then echo '[{"number":1,"title":"[ui-qa] Responsive layout problems on h:1","url":"https://github.com/o/r/issues/1"}]'; else echo '[]'; fi ;;
+  "issue view") echo '{"body":"b","comments":[{"body":"### 1. Horizontal scroll (medium)\n- `/a` · mobile-light"}]}' ;;
   "issue create") echo x > "$GH_DB"; echo "https://github.com/o/r/issues/1" ;;
   "issue comment") while [ $# -gt 0 ]; do [ "$1" = --body ] && printf '%s\n----\n' "$2" >> "$GH_DB.comments"; shift; done; echo "https://github.com/o/r/issues/1#c" ;;
   "image "*|"image") shift; [ "$GH_IMAGE_FAIL" = 1 ] && { echo "no session" >&2; exit 1; }; for f in "$@"; do case "$f" in --repo|o/r) ;; *) echo "![$(basename "$f")](https://github.com/user-attachments/assets/0ff6ee29-4729-4ae9-bbb1-22489701889e)" ;; esac; done ;;
@@ -55,6 +56,16 @@ check "comment text is scrubbed of secrets" "0" "$(grep -c 'ghp_a' "$GH_DB.comme
 rm -f "$GH_DB.comments"
 out="$(GH_IMAGE_FAIL=1 fileit --with-images)"
 check "upload failure: says so, still comments with local paths" "1 1" "$(printf '%s' "$out" | grep -c 'image upload failed') $(grep -c 'local files, not uploaded' "$GH_DB.comments")"
+
+# open issue + rerun: only findings the issue does not list yet are commented
+mkdir -p "$T/rep2/issues"; echo body > "$T/rep2/issues/01.md"; echo x > "$GH_DB"; rm -f "$GH_DB.comments"
+P='{"cat":"responsive","title":"Horizontal scroll","sev":"medium","expected":"No scroll.","rows":[{"path":"/a","ctxs":["mobile-light"],"detail":"","shot":""},{"path":"/b","ctxs":["tablet-dark"],"detail":"d","shot":""}]}'
+echo "[{\"title\":\"[ui-qa] Responsive layout problems on h:1\",\"body\":\"issues/01.md\",\"findings\":1,\"shots\":[],\"problems\":[$P]}]" > "$T/rep2/issues.json"
+(cd "$T" && PATH="$T/bin:$PATH" ISSUE_TRACKER=github node "$UQ" file "$T/rep2" >/dev/null 2>&1)
+check "rerun: comments only the finding the issue lacks" "1 0" "$(grep -c '`/b`' "$GH_DB.comments") $(grep -c '`/a`' "$GH_DB.comments")"
+rm -f "$GH_DB.comments"; echo "[{\"title\":\"[ui-qa] Responsive layout problems on h:1\",\"body\":\"issues/01.md\",\"findings\":1,\"shots\":[],\"problems\":[$(echo "$P" | sed 's|,{"path":"/b"[^}]*}||')]}]" > "$T/rep2/issues.json"
+(cd "$T" && PATH="$T/bin:$PATH" ISSUE_TRACKER=github node "$UQ" file "$T/rep2" >/dev/null 2>&1)
+check "rerun: nothing new -> no comment" "no" "$([ -e "$GH_DB.comments" ] && echo yes || echo no)"
 
 if ! (cd "$PW_DIR" && node -e "try{require('playwright')}catch{require('@playwright/test')}" 2>/dev/null); then
   echo "skip browser run (no Playwright in $PW_DIR; set UI_QA_PW_DIR)"; echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]; exit
