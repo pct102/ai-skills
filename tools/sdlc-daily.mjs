@@ -104,6 +104,9 @@ function activity(lane) {
   return { model, last, n }
 }
 // Runs the agent command (prompt as its last argument) in its own process group, so a timeout takes its children down too. Prints a heartbeat.
+// Impeccable design rules run on every ui-qa pass (medium+ become issues, low stays in the report); QA_IMPECCABLE=0 turns them off.
+const imp = () => (setting('QA_IMPECCABLE') === '0' ? [] : ['--impeccable'])
+
 // A lane keeps the agent's session, so a lane reused by a later run makes the agent answer "already done" from its old context: every run gets its own.
 const RUN = Date.now().toString(36)
 function agent(cwd, prompt, logName, label, { lane = '', min = num('AGENT_TIMEOUT_MIN', 30), what = 'agent' } = {}) {
@@ -189,7 +192,7 @@ function check() {
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
   const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 15), out = join(ROOT, '.sdlc', 'qa-check', day)
   const seeds = list('QA_URLS').flatMap((u) => ['--seed', new URL(u, origin).href])
-  const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds]] // one run: one set of issues, no same-title drafts
+  const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds, ...imp()]] // one run: one set of issues, no same-title drafts
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
   let filed = 0; const newIssues = []
   jobs.forEach(([url, ...flags], i) => {
@@ -224,8 +227,8 @@ async function rerunQa(R, i, env) {
   const dir = join(ROOT, '.sdlc', 'qa-verify', `issue-${i.number}`), origin = new URL(env).origin
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true })
   const all = pagesOf(ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body), cap = num('VERIFY_MAX_PAGES', 8), pages = (all.length ? all : [new URL(env).pathname]).slice(0, cap)
-  const jobs = pages.map((pg) => [`run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0']])
-  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [new URL(env).href, '--max-pages', '5', '--depth', '1']])
+  const jobs = pages.map((pg) => [`run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp()]])
+  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [new URL(env).href, '--max-pages', '5', '--depth', '1', ...imp()]])
   if (all.length > cap) say(`#${i.number}   the issue lists ${all.length} pages, re-running the first ${cap} (VERIFY_MAX_PAGES); the rest is not covered`)
   let bad = 0, done = 0, next = 0
   const one = ([name, args]) => new Promise((resolve) => {
