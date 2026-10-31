@@ -2,7 +2,8 @@
 // The QA loop for one project, run by hand like autopilot: each stage works through its queue, then stops and writes a report.
 // Run from the project root (the project's .sdlc/autopilot.env is read).
 //   sdlc-daily.mjs check [--dry-run]   ui-qa over QA_ENV_URL (+ QA_URLS): files NEW issues (labels ui-qa, auto-fix), with screenshots
-//   sdlc-daily.mjs fix            each open auto-fix issue: an agent runs pct102-dev-fix (PR into PR_BASE), then the merge gate decides
+//   sdlc-daily.mjs fix [--no-verify]  open auto-fix issues, oldest first, ONE AT A TIME: pct102-dev-fix (PR into PR_BASE) -> merge gate (an agent
+//                                 resolves conflicts with PR_BASE) -> wait for the dev deploy -> pct102-qa-verify -> next issue
 //   sdlc-daily.mjs verify         each ready-for-test issue whose fix is merged and deployed: an agent runs pct102-qa-verify --close
 //   sdlc-daily.mjs merge <pr>     the merge gate alone
 // Stages follow issue labels, so they can be rerun safely. Only scripts run here; tokens are spent inside the agent (AGENT_CMD) that
@@ -88,8 +89,27 @@ function gate(R, pr) {
     sleep(30000)
   }
 }
+const freeWt = (wt) => { // drop a stale worktree directory
+  run('git', ['worktree', 'remove', '--force', wt]); rmSync(wt, { recursive: true, force: true })
+}
+const fillWt = (wt) => {
+  for (const f of readdirSync(ROOT).filter((x) => /^\.env/.test(x))) copyFileSync(join(ROOT, f), join(wt, f)) // untracked app env files
+  if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(wt, 'node_modules'))
+}
+// A PR that conflicts with BASE (something else merged first): one agent run merges BASE into the PR branch and pushes it, then the gate decides again.
+function resolveConflicts(R, pr) {
+  const head = ghJson(['pr', 'view', String(pr), '--repo', R, '--json', 'headRefName']).headRefName, wt = join(ROOT, '.sdlc', 'wt', `merge-${pr}`)
+  run('git', ['fetch', 'origin', BASE, head]); freeWt(wt)
+  if (run('git', ['worktree', 'add', '--detach', wt, `origin/${head}`]).status) return say(`PR #${pr}: cannot create a worktree for ${head}`)
+  fillWt(wt)
+  say(`PR #${pr}: conflicts with ${BASE}, an agent merges ${BASE} into ${head}`)
+  agent(wt, `Branch ${head} (PR #${pr}) conflicts with ${BASE}. You are in a checkout of ${head}. Run git merge origin/${BASE}, resolve every conflict keeping the intent of both sides, run npx tsc --noEmit, commit the merge and git push origin HEAD:${head}. Never force-push, never push any other branch, do not merge the PR. If you cannot resolve it safely, git merge --abort and stop. This is an unattended run: never ask questions.`, `merge-${pr}`, `PR #${pr}`)
+  run('git', ['worktree', 'remove', '--force', wt])
+  sleep(num('CONFLICT_WAIT_SEC', 60) * 1000) // let GitHub recompute mergeable and start CI on the new commit
+}
 function merge(R, pr, issue) {
-  const g = gate(R, pr)
+  let g = gate(R, pr)
+  if (!g.ok && g.reason === 'merge conflicts') { resolveConflicts(R, pr); g = gate(R, pr) }
   if (!g.ok) {
     say(`PR #${pr}: not merged: ${g.reason}`)
     if (g.reason !== 'pending' && issue) { tag(R, issue, 'needs-human', 'ready-for-test'); note(R, issue, `Auto-merge of PR #${pr} was refused: ${g.reason}. A person needs to look at it.`) }
@@ -129,45 +149,77 @@ function check() {
   say(`check done: ${jobs.length} run(s), ${filed} new issue(s)`)
 }
 
+// One issue at a time, oldest first: fix -> merge -> wait for the deploy -> verify -> next. Every fix starts from a dev that already holds the
+// previous one, so the PRs do not collide. fixOne returns the number of the PR it merged, or 0.
+function fixOne(R, i, maxTry) {
+  run('git', ['fetch', 'origin', BASE])
+  // Work already on GitHub (an earlier run timed out after pushing, or a person fixed the CI): reuse it, don't pay an agent to redo it.
+  let pr = prFor(R, i.number, 'open')
+  if (!pr) {
+    const br = run('git', ['ls-remote', '--heads', 'origin', `fix/issue-${i.number}-*`]).stdout.trim().split('\n')[0]?.split('refs/heads/')[1]
+    if (br && !run('gh', ['pr', 'create', '--repo', R, '--base', BASE, '--head', br, '--title', `fix(#${i.number}): ${i.title.replace(/^\[ui-qa\]\s*/, '')}`, '--body', `Fix for #${i.number} (branch pushed by an earlier dev-fix run; PR opened by sdlc-daily).`]).status) pr = prFor(R, i.number, 'open')
+  }
+  const finish = (ok) => { card(R, i.number, { note: `PR #${pr.number} ${ok ? 'merged into ' + BASE : 'NOT merged (see the log above)'}` }); return ok ? pr.number : 0 }
+  if (pr) { say(`#${i.number}: reusing PR #${pr.number}`); tag(R, i.number, 'ready-for-test', 'needs-fix'); return finish(merge(R, pr.number, i.number)) }
+  const tries = Math.max(0, ...i.labels.map((l) => +(l.match(/^fix-attempt-(\d+)$/) || [])[1] || 0))
+  if (tries >= maxTry) { tag(R, i.number, 'needs-human', 'needs-fix'); note(R, i.number, `Gave up after ${tries} automatic fix attempt(s). A person needs to look at it.`); say(`#${i.number}: ${tries} attempts, handed to a person`); card(R, i.number, { note: `gave up after ${tries} attempts` }); return 0 }
+  run('gh', ['label', 'create', `fix-attempt-${tries + 1}`, '--repo', R, '--color', 'ededed']); tag(R, i.number, `fix-attempt-${tries + 1}`)
+  const wt = join(ROOT, '.sdlc', 'wt', `issue-${i.number}`); freeWt(wt)
+  if (run('git', ['worktree', 'add', '--detach', wt, `origin/${BASE}`]).status) { errors++; say(`#${i.number}: cannot create a worktree from origin/${BASE}`); return 0 }
+  fillWt(wt)
+  say(`#${i.number}: ${i.title} (attempt ${tries + 1}/${maxTry})`)
+  agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.`, `dev-${i.number}`, `#${i.number}`)
+  run('git', ['worktree', 'remove', '--force', wt])
+  const now = issues(R, 'auto-fix').find((x) => x.number === i.number); pr = prFor(R, i.number, 'open')
+  if (now?.labels.includes('ready-for-test') && pr) return finish(merge(R, pr.number, i.number))
+  say(`#${i.number}: ${now?.labels.includes('needs-human') ? 'handed to a person' : `no ready-for-test result (attempt ${tries + 1}); it stays queued`}`); card(R, i.number, { note: 'not fixed in this run' }); return 0
+}
+
+// Wait until the commit that holds the merged PR is deployed. Returns the deploy state ('success' or the last non-success state).
+function deployed(R, prNumber) {
+  const sha = ghJson(['pr', 'view', String(prNumber), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid || BASE, end = Date.now() + num('DEPLOY_WAIT_MIN', 15) * 60000
+  for (;;) {
+    const st = ghOut(['api', `repos/${R}/commits/${sha}/status`, '--jq', '.state']).trim()
+    if (st === 'success' || /failure|error/.test(st) || Date.now() > end) return st
+    sleep(30000)
+  }
+}
+
+function verifyOne(R, i, env) {
+  say(`#${i.number}: verifying on ${env}`)
+  agent(ROOT, `Use the pct102-qa-verify skill on ${issueUrl(R, i.number)} --env ${env} --close. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.`, `qa-${i.number}`, `#${i.number}`)
+  const after = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'state,labels'])
+  say(`#${i.number}: now ${after.state}, labels ${after.labels.map((l) => l.name).join(',') || '-'}`); card(R, i.number)
+}
+
 function fix() {
   agentCmd()
-  const R = repo(), skip = ['ready-for-test', 'needs-human', 'verified'], maxTry = num('MAX_FIX_ATTEMPTS', 2)
-  const todo = issues(R, 'auto-fix').filter((i) => !i.labels.some((l) => skip.includes(l))).slice(0, num('MAX_DEV_ISSUES', 5))
+  const R = repo(), skip = ['ready-for-test', 'needs-human', 'verified'], maxTry = num('MAX_FIX_ATTEMPTS', 2), env = process.argv.includes('--no-verify') ? '' : setting('QA_ENV_URL')
+  const todo = issues(R, 'auto-fix').filter((i) => !i.labels.some((l) => skip.includes(l))).sort((a, b) => a.number - b.number).slice(0, num('MAX_DEV_ISSUES', 5))
   if (!todo.length) return say('no open auto-fix issues waiting for a fix')
-  run('git', ['fetch', 'origin', BASE])
+  if (!env) say('no verify after each fix (--no-verify, or QA_ENV_URL is not set): fixes are merged one after the other, verify them later with the verify stage')
   // ponytail: one issue at a time. dev-fix starts the app for before/after evidence, so parallel fixers would fight over ports; add worktree-per-agent parallelism if the queue grows.
   for (const i of todo) {
-    const tries = Math.max(0, ...i.labels.map((l) => +(l.match(/^fix-attempt-(\d+)$/) || [])[1] || 0))
-    if (tries >= maxTry) { tag(R, i.number, 'needs-human', 'needs-fix'); note(R, i.number, `Gave up after ${tries} automatic fix attempt(s). A person needs to look at it.`); say(`#${i.number}: ${tries} attempts, handed to a person`); card(R, i.number, { note: `gave up after ${tries} attempts` }); continue }
-    run('gh', ['label', 'create', `fix-attempt-${tries + 1}`, '--repo', R, '--color', 'ededed']); tag(R, i.number, `fix-attempt-${tries + 1}`)
-    const wt = join(ROOT, '.sdlc', 'wt', `issue-${i.number}`)
-    run('git', ['worktree', 'remove', '--force', wt]); rmSync(wt, { recursive: true, force: true })
-    if (run('git', ['worktree', 'add', '--detach', wt, `origin/${BASE}`]).status) { errors++; say(`#${i.number}: cannot create a worktree from origin/${BASE}`); continue }
-    for (const f of readdirSync(ROOT).filter((x) => /^\.env/.test(x))) copyFileSync(join(ROOT, f), join(wt, f)) // untracked app env files
-    if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(wt, 'node_modules'))
-    say(`#${i.number}: ${i.title} (attempt ${tries + 1}/${maxTry})`)
-    agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.`, `dev-${i.number}`, `#${i.number}`)
-    run('git', ['worktree', 'remove', '--force', wt])
-    const now = issues(R, 'auto-fix').find((x) => x.number === i.number), pr = prFor(R, i.number, 'open')
-    if (now?.labels.includes('ready-for-test') && pr) { const ok = merge(R, pr.number, i.number); card(R, i.number, { note: `PR #${pr.number} ${ok ? 'merged into ' + BASE : 'NOT merged (see the log above)'}` }) }
-    else { say(`#${i.number}: ${now?.labels.includes('needs-human') ? 'handed to a person' : `no ready-for-test result (attempt ${tries + 1}); it stays queued`}`); card(R, i.number, { note: 'not fixed in this run' }) }
+    const merged = fixOne(R, i, maxTry)
+    if (!merged || !env) continue
+    const st = deployed(R, merged)
+    if (st !== 'success') { errors++; say(`#${i.number}: ${BASE} deploy is "${st}" after the merge; stopping so no further fix is stacked on it. Fix the deploy, then run fix/verify again.`); card(R, i.number, { note: `stopped: ${BASE} deploy "${st}"` }); return }
+    sleep(num('DEPLOY_SETTLE_SEC', 20) * 1000) // the branch alias needs a moment to move to the new deploy
+    verifyOne(R, i, env)
   }
 }
 
 function verify() {
   agentCmd()
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
-  const R = repo(), todo = issues(R, 'ready-for-test')
+  const R = repo(), todo = issues(R, 'ready-for-test').sort((a, b) => a.number - b.number)
   if (!todo.length) return say('no ready-for-test issues')
   const deploy = ghOut(['api', `repos/${R}/commits/${BASE}/status`, '--jq', '.state']).trim()
   for (const i of todo) {
     // cheap pre-checks before any tokens are spent; qa-verify repeats them on its own
     if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
     if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
-    say(`#${i.number}: ${i.title}`)
-    agent(ROOT, `Use the pct102-qa-verify skill on ${issueUrl(R, i.number)} --env ${env} --close. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.`, `qa-${i.number}`, `#${i.number}`)
-    const after = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'state,labels'])
-    say(`#${i.number}: now ${after.state}, labels ${after.labels.map((l) => l.name).join(',') || '-'}`); card(R, i.number)
+    verifyOne(R, i, env)
   }
 }
 

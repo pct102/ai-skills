@@ -69,7 +69,7 @@ command -v opencode >/dev/null || { echo "opencode not on PATH" >&2; exit 3; }
 . "$(dirname "$0")/oc-compat.sh"
 [ "$mode" = wait ] || [ -f "$prompt" ] || { echo "no prompt file: $prompt" >&2; exit 3; }
 
-dir=.sdlc/features/$feature/.oc${lane:+/lane-$lane}
+dir=${OC_STATE:-.sdlc/features/$feature}/.oc${lane:+/lane-$lane}   # OC_STATE: keep state elsewhere (sdlc-daily)
 mkdir -p "$dir"
 sess_file=$dir/$role.session
 next_n() { echo $(( $(ls "$dir"/"$role"-*.jsonl 2>/dev/null | wc -l || true) + 1 )); }

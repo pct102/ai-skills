@@ -81,10 +81,29 @@ const github = {
     }
     return '\n\n' + urls.map((u, k) => `![${basename(files[k] || 'screenshot')}](${u})`).join('\n')
   },
+  // Mirror the state onto the issue's GitHub Project "Status" column (the board people look at). Best effort: no project, no
+  // `project` scope on the gh token (`gh auth refresh -s project`) or no matching option -> a note, never a failure.
+  status(n, want) {
+    try { return this.setStatus(n, want) } catch { return '' }
+  },
+  setStatus(n, want) {
+    const gql = (q, v) => { const r = spawnSync('gh', ['api', 'graphql', '-f', `query=${q}`, ...Object.entries(v).flatMap(([k, x]) => ['-F', `${k}=${x}`])], { encoding: 'utf8' }); return r.status === 0 ? JSON.parse(r.stdout || 'null') : { err: r.stderr.trim().split('\n')[0] } }
+    const slug = spawnSync('gh', ['repo', 'view', ...this.repoArgs(), '--json', 'owner,name'], { encoding: 'utf8' }); if (slug.status !== 0) return ''
+    const { owner, name } = JSON.parse(slug.stdout)
+    const q = gql('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){projectItems(first:10){nodes{id project{id field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name}}}}}}}}}', { o: owner.login, r: name, n })
+    if (q?.err) return ` (project status not set: ${q.err})`
+    const norm = (x) => x.toLowerCase().replace(/[^a-z]/g, ''), done = []
+    for (const it of q?.data?.repository?.issue?.projectItems?.nodes || []) {
+      const f = it.project?.field, opt = f?.options?.find((o) => norm(o.name) === norm(want)); if (!opt) continue
+      const m = gql('mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$v}}){projectV2Item{id}}}', { p: it.project.id, i: it.id, f: f.id, v: opt.id })
+      if (!m?.err) done.push(opt.name)
+    }
+    return done.length ? ` (project status: ${done[0]})` : ''
+  },
   close(key) {
     const n = key.replace('#', ''), r = spawnSync('gh', ['issue', 'close', n, ...this.repoArgs(), '--reason', 'completed'], { encoding: 'utf8' })
     if (r.status !== 0) die(1, `github close failed: ${r.stderr.trim()}`)
-    return `closed #${n}`
+    return `closed #${n}${this.status(+n, 'Done')}`
   },
   label(key, add, remove) {
     const n = key.replace('#', ''), COLORS = { 'ready-for-test': '0e8a16', verified: '5319e7', 'needs-fix': 'd93f0b' }
@@ -95,7 +114,8 @@ const github = {
     const drop = remove.filter((l) => have.includes(l)) // removing a label the issue lacks (or the repo never had) is an error in gh
     const r = spawnSync('gh', ['issue', 'edit', n, ...this.repoArgs(), ...add.flatMap((l) => ['--add-label', l]), ...drop.flatMap((l) => ['--remove-label', l])], { encoding: 'utf8' })
     if (r.status !== 0) die(1, `github label failed: ${r.stderr.trim()}`)
-    return `labels on #${n}: +${add.join(',') || '-'} -${drop.join(',') || '-'}`
+    const board = add.includes('ready-for-test') ? 'Ready for Test' : add.some((l) => /^fix-attempt-\d+$|^needs-fix$/.test(l)) ? 'In Progress' : ''
+    return `labels on #${n}: +${add.join(',') || '-'} -${drop.join(',') || '-'}${board ? this.status(+n, board) : ''}`
   },
 }
 

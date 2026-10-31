@@ -32,7 +32,7 @@ esac
 exit 0
 GH
 chmod +x "$T/bin/gh"
-export PATH="$T/bin:$PATH" GH_LOG="$T/gh.log" GH_FX="$T/fx" AUTOPILOT_GLOBAL_ENV="$T/global.env" ISSUE_GITHUB_REPO=o/r DAILY_NOTIFY=0 MERGE_WAIT_MIN=0
+export PATH="$T/bin:$PATH" GH_LOG="$T/gh.log" GH_FX="$T/fx" AUTOPILOT_GLOBAL_ENV="$T/global.env" ISSUE_GITHUB_REPO=o/r DAILY_NOTIFY=0 MERGE_WAIT_MIN=0 DEPLOY_SETTLE_SEC=0 CONFLICT_WAIT_SEC=0
 touch "$GH_LOG"
 
 # a project repo whose origin has a dev branch
@@ -65,13 +65,41 @@ echo '[{"number":5,"title":"t5","labels":[{"name":"auto-fix"},{"name":"fix-attem
 AG
 echo '[{"number":6,"title":"t6","labels":[{"name":"auto-fix"},{"name":"fix-attempt-2"}]},{"number":5,"title":"t5","labels":[{"name":"auto-fix"}]}]' > "$GH_FX/issues-auto-fix.json"
 echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN"}' > "$GH_FX/issueview.json"
-echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-open.json"
+PR9='[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]'
+echo "echo '$PR9' > \"$GH_FX/pr-open.json\"" >> "$T/agent.sh"; echo '[]' > "$GH_FX/pr-open.json"
 pr 9 "$F1" 10 "$OKCI"
 : > "$GH_LOG"; node "$SD" fix >/dev/null 2>&1
 check "dev: an issue out of attempts goes to needs-human" "1" "$(calls 'issue edit 6 .*--add-label needs-human')"
 check "dev: the agent ran once, in a worktree, with the issue URL" "1" "$(grep -c 'issue-5|Use the pct102-dev-fix skill on https://github.com/o/r/issues/5' "$T/agent.log")"
 check "dev: the ready-for-test fix PR was gate-merged" "1" "$(calls 'pr merge 9 --repo o/r --squash')"
 check "dev: the worktree was removed" "0" "$(git worktree list | grep -c 'issue-5')"
+# an open fix PR already exists (earlier timeout, or CI fixed since): no agent, straight to the gate
+echo '[{"number":5,"title":"t5","labels":[{"name":"auto-fix"},{"name":"fix-attempt-2"}]}]' > "$GH_FX/issues-auto-fix.json"
+: > "$T/agent.log"; : > "$GH_LOG"; node "$SD" fix --no-verify >/dev/null 2>&1
+check "dev: an existing open PR is reused, no agent run, and gate-merged" "0 1" "$(wc -l < "$T/agent.log" | tr -d ' ') $(calls 'pr merge 9 --repo o/r --squash')"
+# default fix = fix, merge, wait for the deploy, then verify that issue before the next one
+: > "$T/agent.log"; : > "$GH_LOG"; node "$SD" fix >/dev/null 2>&1
+check "dev: after the merge the same issue is verified (qa-verify agent, --env, --close)" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
+: > "$T/agent.log"; DEPLOY=failure node "$SD" fix >/dev/null 2>&1
+check "dev: a failed dev deploy stops the loop before verify" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
+# oldest issue first
+echo '[{"number":8,"title":"t8","labels":[{"name":"auto-fix"}]},{"number":7,"title":"t7","labels":[{"name":"auto-fix"}]}]' > "$GH_FX/issues-auto-fix.json"
+echo '[]' > "$GH_FX/pr-open.json"; cat > "$T/agent.sh" <<AG
+#!/bin/sh
+echo "\$(pwd)|\$1" >> "$T/agent.log"
+AG
+: > "$T/agent.log"; node "$SD" fix --no-verify >/dev/null 2>&1
+check "dev: issues are fixed oldest first" "7 8" "$(grep -o 'issues/[0-9]*' "$T/agent.log" | grep -o '[0-9]*' | tr '\n' ' ' | sed 's/ $//')"
+# a PR that conflicts with dev: an agent merges dev into its branch, then the gate runs again
+git push -q origin dev:fix/issue-10-x
+pr 10 "$F1" 5 "$OKCI" CONFLICTING fix/issue-10-x
+cat > "$T/agent.sh" <<AG
+#!/bin/sh
+echo "\$(pwd)|\$1" >> "$T/agent.log"
+sed 's/CONFLICTING/MERGEABLE/' "$GH_FX/prview-10.json" > "$GH_FX/p.tmp" && mv "$GH_FX/p.tmp" "$GH_FX/prview-10.json"
+AG
+: > "$T/agent.log"; : > "$GH_LOG"; CONFLICT_WAIT_SEC=0 node "$SD" merge 10 >/dev/null 2>&1
+check "gate: a conflicting PR gets a conflict-resolving agent, then merges" "1 1" "$(grep -c 'conflicts with dev.*git push origin HEAD:fix/issue-10-x' "$T/agent.log") $(calls 'pr merge 10 --repo o/r --squash')"
 
 # qa stage: nothing runs until the fix PR is merged and dev is deployed
 echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"
@@ -81,7 +109,7 @@ echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' 
 DEPLOY=pending node "$SD" verify >/dev/null 2>&1;                   check "qa: dev not deployed -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
 node "$SD" verify >/dev/null 2>&1;                                  check "qa: merged and deployed -> one agent run with --env and --close" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
 
-check "fix wrote a report file naming the issue" "1" "$(ls .sdlc/daily/fix-*.md 2>/dev/null | head -1 | xargs grep -c '#5' | awk '{print ($1>0)}')"
+check "fix wrote a report file naming the issue" "yes" "$(cat .sdlc/daily/fix-*.md 2>/dev/null | grep -q "#7" && echo yes)"
 
 # settings
 rm .sdlc/autopilot.env
