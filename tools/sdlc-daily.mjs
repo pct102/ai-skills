@@ -112,7 +112,7 @@ function agent(cwd, prompt, logName, label, { lane = '', min = num('AGENT_TIMEOU
   const logFile = join(dailyDir, 'logs', `${day}-${logName}.log`), log = openSync(logFile, 'a'), t0 = Date.now()
   say(`${label}   ${what} started · max ${min}m · models: ${chain.length ? chain.join(' → ') + ' (next one when a model hits its limit)' : "opencode's own default"}`)
   return new Promise((resolve) => {
-    lane = lane && `${lane}-${RUN}`
+    lane = lane && `${lane}_${RUN}`
     const child = spawn('sh', ['-c', `${cmdline} "$SDLC_PROMPT"`], { cwd, env: { ...process.env, SDLC_PROMPT: prompt, OC_LANE: lane }, stdio: ['ignore', log, log], detached: true })
     let timedOut = false
     const group = (sig) => { try { process.kill(-child.pid, sig) } catch {} }
