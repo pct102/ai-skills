@@ -84,11 +84,12 @@ const github = {
   // Mirror the state onto the issue's GitHub Project "Status" column (the board people look at). Best effort: no project, no
   // `project` scope on the gh token (`gh auth refresh -s project`) or no matching option -> a note, never a failure.
   status(n, want) {
-    try { return this.setStatus(n, want) } catch { return '' }
+    try { return this.setStatus(n, want) } catch (e) { return ` (project status error: ${e.message.slice(0, 120)})` }
   },
   setStatus(n, want) {
-    const gql = (q, v) => { const r = spawnSync('gh', ['api', 'graphql', '-f', `query=${q}`, ...Object.entries(v).flatMap(([k, x]) => ['-F', `${k}=${x}`])], { encoding: 'utf8' }); return r.status === 0 ? JSON.parse(r.stdout || 'null') : { err: r.stderr.trim().split('\n')[0] } }
-    const slug = spawnSync('gh', ['repo', 'view', ...this.repoArgs(), '--json', 'owner,name'], { encoding: 'utf8' }); if (slug.status !== 0) return ''
+    // -F would turn an all-digit option id into a number, so only numbers go with -F
+    const gql = (q, v) => { const r = spawnSync('gh', ['api', 'graphql', '-f', `query=${q}`, ...Object.entries(v).flatMap(([k, x]) => [typeof x === 'number' ? '-F' : '-f', `${k}=${x}`])], { encoding: 'utf8' }); return r.status === 0 ? JSON.parse(r.stdout || 'null') : { err: r.stderr.trim().split('\n')[0] } }
+    const slug = spawnSync('gh', ['repo', 'view', ...this.repoArgs().slice(1), '--json', 'owner,name'], { encoding: 'utf8' }); if (slug.status !== 0) return ''
     const { owner, name } = JSON.parse(slug.stdout)
     const q = gql('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){projectItems(first:10){nodes{id project{id field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name}}}}}}}}}', { o: owner.login, r: name, n })
     if (q?.err) return ` (project status not set: ${q.err})`
@@ -96,7 +97,8 @@ const github = {
     for (const it of q?.data?.repository?.issue?.projectItems?.nodes || []) {
       const f = it.project?.field, opt = f?.options?.find((o) => norm(o.name) === norm(want)); if (!opt) continue
       const m = gql('mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$v}}){projectV2Item{id}}}', { p: it.project.id, i: it.id, f: f.id, v: opt.id })
-      if (!m?.err) done.push(opt.name)
+      if (m?.err) return ` (project status not set: ${m.err})`
+      done.push(opt.name)
     }
     return done.length ? ` (project status: ${done[0]})` : ''
   },

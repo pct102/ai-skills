@@ -32,7 +32,7 @@ esac
 exit 0
 GH
 chmod +x "$T/bin/gh"
-export PATH="$T/bin:$PATH" GH_LOG="$T/gh.log" GH_FX="$T/fx" AUTOPILOT_GLOBAL_ENV="$T/global.env" ISSUE_GITHUB_REPO=o/r DAILY_NOTIFY=0 MERGE_WAIT_MIN=0 DEPLOY_SETTLE_SEC=0 CONFLICT_WAIT_SEC=0
+export PATH="$T/bin:$PATH" GH_LOG="$T/gh.log" GH_FX="$T/fx" AUTOPILOT_GLOBAL_ENV="$T/global.env" ISSUE_GITHUB_REPO=o/r DAILY_NOTIFY=0 MERGE_WAIT_MIN=0 DEPLOY_SETTLE_SEC=0 CONFLICT_WAIT_SEC=0 VERIFY_RERUN=0 HEARTBEAT_SEC=1
 touch "$GH_LOG"
 
 # a project repo whose origin has a dev branch
@@ -100,6 +100,21 @@ sed 's/CONFLICTING/MERGEABLE/' "$GH_FX/prview-10.json" > "$GH_FX/p.tmp" && mv "$
 AG
 : > "$T/agent.log"; : > "$GH_LOG"; CONFLICT_WAIT_SEC=0 node "$SD" merge 10 >/dev/null 2>&1
 check "gate: a conflicting PR gets a conflict-resolving agent, then merges" "1 1" "$(grep -c 'conflicts with dev.*git push origin HEAD:fix/issue-10-x' "$T/agent.log") $(calls 'pr merge 10 --repo o/r --squash')"
+
+# verify re-runs ui-qa itself (a fake one here) on the pages the issue names, then hands the results folder to the agent
+cat > "$T/fake-uiqa.mjs" <<'UQ'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+const a = process.argv.slice(2), out = a[a.indexOf('--out') + 1]
+mkdirSync(out, { recursive: true }); writeFileSync(`${out}/findings.json`, '{"findings":[]}'); appendFileSync(process.env.UQ_LOG, `${a[0]}\n`)
+UQ
+echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN","body":"**Affected pages:** `/vi/a`, `/vi/b`"}' > "$GH_FX/issueview.json"
+echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"
+echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-merged.json"
+: > "$T/agent.log"; : > "$T/uq.log"
+UQ_LOG="$T/uq.log" UI_QA_BIN="$T/fake-uiqa.mjs" VERIFY_RERUN=1 node "$SD" verify >/dev/null 2>&1
+check "verify: ui-qa ran on each page of the issue plus a sweep, by the script" "3" "$(wc -l < "$T/uq.log" | tr -d ' ')"
+check "verify: the agent is told where the results are and not to run ui-qa" "1" "$(grep -c 'qa-verify/issue-5/.*do NOT run ui-qa' "$T/agent.log")"
+echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN"}' > "$GH_FX/issueview.json"
 
 # qa stage: nothing runs until the fix PR is merged and dev is deployed
 echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"

@@ -171,7 +171,7 @@ while :; do
     [ "$any" = 1 ] && { sleep 5; continue; }   # every usable model is busy with another call: wait for a slot
     break
   fi
-  tried=1
+  tried=1; echo "$model" > "$dir/$role.model"   # which model is running now (sdlc-daily shows it)
   args=(run -m "$model" --format json --title "$feature/$actor")
   [ "$oc_auto" = 1 ] && args+=(--auto)
   [ -n "${OC_ATTACH:-}" ] && args+=("$(oc_attach_flag)" "$OC_ATTACH")

@@ -9,4 +9,4 @@ st=$root/.sdlc/daily/oc; mkdir -p "$st"
 p=$(mktemp); trap 'rm -f "$p"' EXIT; printf %s "$1" > "$p"
 # a lane per call = a fresh session (one issue's context must not leak into the next); the exhausted-model list is shared
 cd "$root"
-OC_STATE=$st OC_DIR=$work bash "$here/oc-agent.sh" --lane "c$(date +%s)x$$" builder daily "$p"
+OC_STATE=$st OC_DIR=$work bash "$here/oc-agent.sh" --lane "${OC_LANE:-c$(date +%s)x$$}" builder daily "$p"
