@@ -104,12 +104,15 @@ function activity(lane) {
   return { model, last, n }
 }
 // Runs the agent command (prompt as its last argument) in its own process group, so a timeout takes its children down too. Prints a heartbeat.
+// A lane keeps the agent's session, so a lane reused by a later run makes the agent answer "already done" from its old context: every run gets its own.
+const RUN = Date.now().toString(36)
 function agent(cwd, prompt, logName, label, { lane = '', min = num('AGENT_TIMEOUT_MIN', 30), what = 'agent' } = {}) {
   const cmdline = agentCmd(), chain = (setting('BUILDER_MODEL') || '').replace(/\s+/g, '').split(',').filter(Boolean)
   mkdirSync(join(dailyDir, 'logs'), { recursive: true })
   const logFile = join(dailyDir, 'logs', `${day}-${logName}.log`), log = openSync(logFile, 'a'), t0 = Date.now()
   say(`${label}   ${what} started · max ${min}m · models: ${chain.length ? chain.join(' → ') + ' (next one when a model hits its limit)' : "opencode's own default"}`)
   return new Promise((resolve) => {
+    lane = lane && `${lane}-${RUN}`
     const child = spawn('sh', ['-c', `${cmdline} "$SDLC_PROMPT"`], { cwd, env: { ...process.env, SDLC_PROMPT: prompt, OC_LANE: lane }, stdio: ['ignore', log, log], detached: true })
     let timedOut = false
     const group = (sig) => { try { process.kill(-child.pid, sig) } catch {} }
