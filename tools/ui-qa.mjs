@@ -2,7 +2,7 @@
 // ui-qa — black-box UI check of a running web app from its URL alone (no source code read).
 //
 //   ui-qa.mjs <url> [--depth 1] [--max-pages 5] [--max-clicks 25] [--out <dir>] [--auth <storageState.json>]
-//                   [--issue-min medium|low|high] [--max-issues 8] [--headed] [--allow-remote] [--allow-destructive]
+//                   [--issue-min medium|low|high] [--max-issues 8] [--design-polish [--max-design-issues 6]] [--headed] [--allow-remote] [--allow-destructive]
 //                   [--ignore <css selectors>] [--ignore-console <regex>]   (defaults skip Next.js dev overlay + React's script-tag dev warning)
 //                   [--seed <url|path>]... (extra same-origin pages, tested without crawling on)  [--impeccable] [--impeccable-version 4.8.0]   (opt-in design pass by the third-party `impeccable detect`, via npx)
 //   ui-qa.mjs file <out-dir> [--with-images]   file the issues a run wrote (needs ISSUE_TRACKER, see sdlc-issue.mjs)
@@ -48,6 +48,7 @@ if (argv[0] === 'file') {
     const said = r.stdout.trim() || r.stderr.trim(); console.log(said)
     if (r.status) { bad = 1; continue }
     const m = said.match(/(already filed|filed): (#\d+)/); if (!gh || !m) continue
+    if (m[1] === 'filed' && (i.priority || i.design)) { const l = sdlc(['label', '--key', m[2], '--add', [i.priority && `priority:${i.priority}`, i.design && 'design-polish'].filter(Boolean).join(',')]); if (l.status) console.log(`  labels not set: ${(l.stderr || l.stdout).trim()}`) }
     const again = m[1] === 'already filed', date = new Date().toISOString().slice(0, 10)
     let shots = has('with-images') ? (i.shots || []).map((x) => join(dir, x)).filter(existsSync) : [], text = `UI QA evidence (${date}).`
     if (again && i.problems) { // an open issue already tracks this area: say only what it does not list yet
@@ -277,6 +278,7 @@ async function interact(c, path, url) {
       flush(c, path, `choosing options of select ${where}`); continue
     }
     const before = await sig(page)
+    await page.evaluate(() => { window.__uq = new WeakSet(); document.querySelectorAll('*').forEach((e) => { if (/absolute|fixed/.test(getComputedStyle(e).position) && e.getClientRects().length) window.__uq.add(e) }) }).catch(() => {})
     try { await el.hover({ timeout: 1500 }); stats.hovers++ } catch {}
     for (const s of await slow(page)) add({ ...base, sev: 'low', cat: 'motion', title: `Slow transition (${s})`, detail: `on hover over ${where}` })
     try { await el.click({ timeout: 2500 }); stats.clicks++ } catch (e) {
@@ -287,6 +289,23 @@ async function interact(c, path, url) {
     for (const s of await slow(page)) add({ ...base, sev: 'low', cat: 'motion', title: `Slow transition (${s})`, detail: `after clicking ${where}` })
     await page.waitForTimeout(250); const threw = c.log.length > 0; flush(c, path, `clicking ${where}`)
     const after = await sig(page), changed = after !== before
+    // a menu or popup the click opened that an ancestor's overflow:hidden cuts off (a fix elsewhere can do this)
+    const cut = await page.evaluate(() => {
+      const seen = window.__uq || new WeakSet(), out = []
+      for (const e of document.querySelectorAll('*')) {
+        if (seen.has(e)) continue
+        const s = getComputedStyle(e); if (s.position !== 'absolute' || s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0) continue
+        const r = e.getBoundingClientRect(); if (r.width < 60 || r.height < 30) continue
+        let v = { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+        for (let a = e.offsetParent; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+          const t = getComputedStyle(a); if (!/hidden|clip/.test(t.overflowX + t.overflowY)) continue
+          const b = a.getBoundingClientRect(); v = { left: Math.max(v.left, b.left), top: Math.max(v.top, b.top), right: Math.min(v.right, b.right), bottom: Math.min(v.bottom, b.bottom) }
+        }
+        if (Math.max(0, v.right - v.left) * Math.max(0, v.bottom - v.top) < 0.6 * r.width * r.height) out.push((e.getAttribute('role') || e.tagName.toLowerCase()) + ' "' + (e.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 30) + '"')
+      }
+      return out.slice(0, 2)
+    }).catch(() => [])
+    if (cut.length) { add({ ...base, sev: 'medium', cat: 'click-blocked', title: `Popup opened by ${where} is cut off by an ancestor with overflow hidden`, detail: cut.join('; ') }); await page.screenshot({ path: join(out, `screens/${slug(path)}-${c.name}+popup.png`), animations: 'disabled' }).catch(() => {}) }
     if (!changed && !/checkbox|radio/.test(await el.getAttribute('type').catch(() => '') || '') && !threw && dead++ < 5) add({ ...base, sev: 'low', cat: 'unresponsive', title: `Click on ${where} changed nothing visible`, detail: 'no DOM, aria, theme or URL change after the click (can be fine for analytics-only buttons)' })
     if (changed && /theme|dark|light|mode|giao diện|chế độ/i.test(k.label)) {
       await page.screenshot({ path: join(out, `screens/${slug(path)}-${c.name}+toggle.png`), animations: 'disabled' }).catch(() => {})
@@ -400,25 +419,35 @@ const EXPECT = { 'js-exception': 'No uncaught exceptions while loading or using 
   unresponsive: 'Clicking a control gives visible feedback or navigates.', dialog: 'Dialogs close with Esc.', focus: 'Every tab stop shows a visible focus indicator.',
   motion: 'Transitions stay under 800 ms and animations respect prefers-reduced-motion.', design: 'Basic typography and layout quality rules hold.' }
 const bySev = Object.keys(SEV).filter((s) => SEV[s] >= SEV[MIN])
-const areas = [...new Set(all.filter((f) => bySev.includes(f.sev)).map((f) => AREA[f.cat] || 'runtime'))]
-  .sort((x, y) => Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === y).map((f) => SEV[f.sev])) - Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === x).map((f) => SEV[f.sev]))).slice(0, MAX_ISSUES)
-const drafts = areas.map((area, n) => {
-  const fs = all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev)), body = `issues/${String(n + 1).padStart(2, '0')}-${area}.md`
+// --design-polish: the low Impeccable design rules become issues too, one per rule (a fixer changes one rule's pages together), labelled design-polish, capped
+const polish = has('design-polish') && has('impeccable'), isPolish = (f) => polish && f.cat === 'design' && SEV[f.sev] < SEV[MIN]
+const areas = [...new Set(all.filter((f) => bySev.includes(f.sev) && !isPolish(f)).map((f) => AREA[f.cat] || 'runtime'))]
+  .sort((x, y) => Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === y && !isPolish(f)).map((f) => SEV[f.sev])) - Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === x && !isPolish(f)).map((f) => SEV[f.sev]))).slice(0, MAX_ISSUES)
+// Priority = how much a fix can touch: high = a crash or 6+ pages, medium = 2+ pages, low = one page. A person can still relabel.
+const priorityOf = (fs, polish) => polish ? 'low' : fs.some((f) => f.sev === 'high') || new Set(fs.map((f) => f.path)).size >= 6 ? 'high' : new Set(fs.map((f) => f.path)).size >= 2 ? 'medium' : 'low'
+const mkDraft = (area, fs, body, title, design) => {
+  
   const probs = new Map() // cat|title -> one problem listing every page it appears on
-  for (const f of fs) { const k = `${f.cat}|${f.title}`, e = probs.get(k) || { cat: f.cat, title: f.title, sev: f.sev, rows: [] }; e.rows.push(f); probs.set(k, e) }
+  for (const f of fs) { const k = `${f.cat}|${f.title}`, e = probs.get(k) || { cat: f.cat, title: f.title, sev: f.sev, expected: EXPECT[f.cat] || '', rows: [] }; e.rows.push(f); probs.set(k, e) }
   const list = [...probs.values()].sort((x, y) => SEV[y.sev] - SEV[x.sev])
-  const pages = [...new Set(fs.map((f) => f.path))]
+  const pages = [...new Set(fs.map((f) => f.path))], prio = priorityOf(fs, design)
   writeFileSync(join(out, body), [
     '## Summary', `A black-box UI check (\`ui-qa\`, no source read) of ${root.href} on ${new Date().toISOString().slice(0, 10)} found ${list.length} problem(s) in one area: **${AREA_LABEL[area]}**. They are filed together because they are usually fixed together: fix the shared cause once (a global style, a theme token, a shared component) and check every item below before marking it ready.`, '',
-    `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, '', '## Problems', '',
+    `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, `**Priority:** ${prio} · impact: ${pages.length} page(s), ${list.length} problem(s)${design ? ' · design polish (a taste call: follow the project design system)' : ''}`, '', '## Problems', '',
     renderProblems(list),
     '## How to reproduce', `\`node tools/ui-qa.mjs ${root.href}\`. Open the page at the listed viewport and theme (the context names are viewport-theme, for example mobile-dark).`, '',
     '## Notes for the fixer', '- Search for siblings: the same cause often shows on other pages, themes or components than the ones listed.', '- Do not close this issue yourself: a separate QA pass verifies the fix on the deployed environment.', '',
     '_Screenshot paths are relative to the ui-qa report folder on the reporter\'s machine; with --with-images they are attached in a comment._',
   ].join('\n'))
   const shots = [...new Set(fs.filter((f) => f.shot && existsSync(join(out, f.shot))).map((f) => f.shot))].slice(0, 4) // already worst-first
-  return { title: `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
-})
+  return { title, priority: prio, design: !!design, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
+}
+const drafts = areas.map((area, n) => mkDraft(area, all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev) && !isPolish(f)), `issues/${String(n + 1).padStart(2, '0')}-${area}.md`, `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, false))
+if (polish) { // one issue per design rule, the widest first
+  const rules = new Map(); for (const f of all.filter(isPolish)) rules.set(f.title, [...(rules.get(f.title) || []), f])
+  ;[...rules].sort((x, y) => new Set(y[1].map((f) => f.path)).size - new Set(x[1].map((f) => f.path)).size).slice(0, +flag('max-design-issues', 6))
+    .forEach(([title, fs], n) => drafts.push(mkDraft('design', fs, `issues/d${String(n + 1).padStart(2, '0')}-design.md`, `[ui-qa] Design: ${title} on ${root.host}`, true)))
+}
 writeFileSync(join(out, 'issues.json'), JSON.stringify(drafts, null, 2))
 
 console.log(`ui-qa: ${count('high')} high, ${count('medium')} medium, ${count('low')} low · ${stats.pages} pages, ${stats.clicks} clicks`)

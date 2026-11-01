@@ -3,7 +3,7 @@
 #
 # Proves: `file --with-images` uploads via `gh image` and comments, falls back to local paths, and never comments on a fresh issue without the flag; remote hosts and bad usage are refused before a browser starts; `file` sends nothing while the tracker is off;
 # on a local fixture with known bugs the run reports overflow, low contrast and a console error, and (safe mode) never
-# lets a POST reach the server. The browser part is skipped unless Playwright resolves from $UI_QA_PW_DIR (default: cwd).
+# lets a POST reach the server, and a menu cut off by overflow:hidden is caught. The browser part is skipped unless Playwright resolves from $UI_QA_PW_DIR (default: cwd).
 #
 # Run from the repository root:  bash tools/selftest/ui-qa-selftest.sh
 set -uo pipefail
@@ -75,7 +75,7 @@ cat > "$T/srv.mjs" <<'JS'
 import http from 'node:http'; import { appendFileSync } from 'node:fs'
 const page = `<!doctype html><title>fx</title><style>body{background:#0f172a;margin:0}.app{background:#fff;min-height:100vh}@media(prefers-color-scheme:dark){.app{background:#111;color:#eee}}.w{width:900px}.f{color:#ccc}@media(prefers-color-scheme:dark){.f{color:#ddd}}button{outline:none}.x .app{background:#111;color:#eee}</style>
 <div class=app><p class=f>faint text</p><div class=w>wide</div><span style="color:#fff">\u{1F34E}</span>
-<button onclick="document.documentElement.classList.toggle('x')">Toggle dark theme</button><button onclick="fetch('/post',{method:'POST'})">Save</button><nextjs-portal><button style="outline:none">dev</button></nextjs-portal>
+<button onclick="document.documentElement.classList.toggle('x')">Toggle dark theme</button><button onclick="fetch('/post',{method:'POST'})">Save</button><div style="position:relative;overflow:hidden;width:120px;height:34px"><button onclick="this.nextElementSibling.hidden=false">Open menu</button><div hidden style="position:absolute;top:100%;left:0;width:200px;height:120px;background:#fff;color:#000">menu items here</div></div><nextjs-portal><button style="outline:none">dev</button></nextjs-portal>
 <script>console.error('fx error');console.error('Encountered a script tag while rendering React component')</script></div>`
 http.createServer((q, s) => { if (q.method === 'POST') appendFileSync(process.argv[2], 'post\n'); s.setHeader('content-type', 'text/html'); s.end(page) })
   .listen(0, '127.0.0.1', function () { console.log(this.address().port) })
@@ -88,8 +88,10 @@ for c in responsive contrast console-error; do case ",$cats," in *",$c,"*) check
 f="$(cat "$T/out/findings.json")"
 check "a theme toggle does not overwrite the light baseline (no false 'no dark theme')" "0" "$(printf '%s' "$f" | grep -c 'No dark theme')"
 check "emoji is not reported as low contrast" "0" "$(printf '%s' "$f" | grep -c 🍎)"
+check "a popup cut off by overflow:hidden is reported" "1" "$(printf '%s' "$f" | grep -c 'cut off by an ancestor')"
 check "dev overlay is ignored (focus, console noise)" "0" "$(printf '%s' "$f" | grep -cE 'nextjs-portal|script tag')"
 check "no POST reached the server" "0" "$(cat "$T/posts" 2>/dev/null | wc -l | tr -d ' ')"
+check "drafts carry a priority and no 'Expected: undefined'" "yes" "$(grep -q '"priority": "' "$T/out/issues.json" && ! grep -rq 'Expected:\*\* undefined' "$T/out/issues" && echo yes)"
 check "issue drafts written" "yes" "$([ -s "$T/out/issues.json" ] && echo yes)"
 
 echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]

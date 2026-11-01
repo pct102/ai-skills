@@ -108,7 +108,7 @@ const github = {
     return `closed #${n}${this.status(+n, 'Done')}`
   },
   label(key, add, remove) {
-    const n = key.replace('#', ''), COLORS = { 'ready-for-test': '0e8a16', verified: '5319e7', 'needs-fix': 'd93f0b' }
+    const n = key.replace('#', ''), COLORS = { 'ready-for-test': '0e8a16', verified: '5319e7', 'needs-fix': 'd93f0b', 'priority:high': 'd73a4a', 'priority:medium': 'fbca04', 'priority:low': '0e8a16', 'design-polish': 'c5def5' }
     for (const l of add) spawnSync('gh', ['label', 'create', l, ...this.repoArgs(), '--color', COLORS[l] || 'ededed'], { encoding: 'utf8' }) // already exists -> non-zero, fine
     const cur = spawnSync('gh', ['issue', 'view', n, ...this.repoArgs(), '--json', 'labels'], { encoding: 'utf8' })
     if (cur.status !== 0) die(1, `github label failed: ${cur.stderr.trim()}`)
