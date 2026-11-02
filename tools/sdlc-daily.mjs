@@ -14,6 +14,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 import { setting } from './lib/setting.mjs'
 import { impact } from './lib/impact.mjs'
 
@@ -23,6 +24,11 @@ const die = (code, msg) => { console.error(`sdlc-daily: ${msg}`); process.exit(c
 const run = (c, a, o = {}) => spawnSync(c, a, { encoding: 'utf8', cwd: ROOT, ...o })
 const num = (k, d) => (setting(k) === '' ? d : +setting(k)) // 0 is a real value
 const list = (k, d = '') => (setting(k) || d).split(/[\s,]+/).filter(Boolean)
+// Profiles = roles tested logged in (a saved login file, ui-qa --auth). QA_PROFILES="admin student1 devadmin"; per profile NAME: QA_PROFILE_<NAME>_AUTH (login file),
+// _URL (default QA_LOCAL_URL), _PATHS (pages for that role). A local URL runs the project's own server with seeded test users; a remote one is the deployed dev.
+const profile = (name) => { const K = `QA_PROFILE_${name.toUpperCase().replace(/\W/g, '_')}_`, a = setting(K + 'AUTH'); return a ? { name, auth: a.startsWith('~') ? join(homedir(), a.slice(1)) : resolve(ROOT, a), base: (setting(K + 'URL') || setting('QA_LOCAL_URL')).replace(/\/+$/, ''), paths: list(K + 'PATHS', '/vi/home') } : null }
+const isLocalUrl = (u) => { try { return /^(localhost|127\.|\[?::1\]?$)/.test(new URL(u).hostname) } catch { return false } }
+const reachable = (u) => run('curl', ['-s', '-o', '/dev/null', '-m', '8', u]).status === 0
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const day = new Date().toLocaleDateString('sv') // yyyy-mm-dd, local
 const dailyDir = join(ROOT, '.sdlc', 'daily'); mkdirSync(dailyDir, { recursive: true })
@@ -196,6 +202,14 @@ function check() {
   const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 15), out = join(ROOT, '.sdlc', 'qa-check', day)
   const seeds = list('QA_URLS').flatMap((u) => ['--seed', new URL(u, origin).href])
   const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds, ...imp(), ...polish()]] // one run: one set of issues, no same-title drafts
+  for (const name of list('QA_PROFILES')) { // roles tested logged in; each one that cannot run says why instead of silently testing the login page
+    const pf = profile(name)
+    if (!pf?.base) { say(`profile ${name}: QA_PROFILE_${name.toUpperCase()}_AUTH or a URL is missing, skipped`); continue }
+    if (!existsSync(pf.auth)) { say(`profile ${name}: no saved login at ${pf.auth}, skipped (create it, see autopilot.env.example)`); continue }
+    if (!reachable(pf.base)) { say(`profile ${name}: ${pf.base} is not running, skipped (start the app, for example npm run dev)`); continue }
+    const [first, ...rest] = pf.paths
+    jobs.push([pf.base + first, '--depth', '0', '--max-pages', String(pf.paths.length), ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
+  }
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
   let filed = 0; const newIssues = []
   jobs.forEach(([url, ...flags], i) => {
@@ -222,23 +236,24 @@ function check() {
 // One issue at a time, oldest first: fix -> merge -> wait for the deploy -> verify -> next. Every fix starts from a dev that already holds the
 // previous one, so the PRs do not collide. Each issue runs as a checklist of timed steps (see step()).
 const pagesOf = (body) => [...((body || '').match(/Affected pages?:?\**\s*(.+)/i)?.[1] || '').matchAll(/`(\/[^`\s]*)`/g)].map((m) => m[1])
+const profileOf = (R, n) => { const m = (ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'body']).body || '').match(/QA profile:\*{0,2}\s*([\w-]+)/); return m ? profile(m[1]) : null }
 const verdictOf = (R, n) => { const a = ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'state,labels']), l = a.labels.map((x) => x.name); return { state: a.state, labels: l, done: a.state === 'CLOSED' || l.includes('verified') || l.includes('needs-fix') } }
 
 // The ui-qa runs of the verification are done HERE, not by the agent: one crawl takes minutes and an agent's shell gives up after two.
 // A few pages at a time (VERIFY_PARALLEL), at most VERIFY_MAX_PAGES of the issue's pages (the rest is said to be not covered).
 async function rerunQa(R, i, env) {
-  const dir = join(ROOT, '.sdlc', 'qa-verify', `issue-${i.number}`), origin = new URL(env).origin
+  const pf = profileOf(R, i.number), au = pf ? ['--auth', pf.auth] : [], dir = join(ROOT, '.sdlc', 'qa-verify', `issue-${i.number}`), origin = new URL(pf ? pf.base : env).origin
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true })
   const all = pagesOf(ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body), cap = num('VERIFY_MAX_PAGES', 8), pages = (all.length ? all : [new URL(env).pathname]).slice(0, cap)
-  const jobs = pages.map((pg) => [`run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp()]])
+  const jobs = pages.map((pg) => [`run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp(), ...au]])
   // Impact: pages the fix's changed files reach but the issue does not list. A fix can break what it did not mean to touch (a clipped avatar menu), so these are tested too.
   const mp = prFor(R, i.number, 'merged'), ch = mp ? (ghJson(['pr', 'view', String(mp.number), '--repo', R, '--json', 'files'])?.files || []).map((f) => f.path) : []
   const im = ch.length ? impact(ROOT, `origin/${BASE}`, ch) : { routes: [], all: false, files: [] }
   const extra = im.routes.filter((r) => !pages.includes(r)).sort((a, b) => /admin/.test(a) - /admin/.test(b)).slice(0, num('VERIFY_IMPACT_PAGES', 4))
-  for (const pg of extra) jobs.push([`impact-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp()]])
+  for (const pg of extra) jobs.push([`impact-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp(), ...au]])
   cl.impact = { files: im.files, all: im.all, routes: im.routes, tested: extra }
   if (im.files.length) { say(`#${i.number}   impact: PR #${mp.number} changed ${im.files.length} file(s) reaching ${im.routes.length} page(s)${im.all ? ' (global styles changed: every page)' : ''}; also testing ${extra.length}: ${extra.join(' ') || 'none'}`); note(R, i.number, `Impact scope of PR #${mp.number}: changed ${im.files.map((f) => '`' + f + '`').join(', ')}. These files reach ${im.routes.length} page(s)${im.all ? ' and global styles (every page)' : ''}: ${im.routes.slice(0, 12).map((r) => '`' + r + '`').join(', ')}${im.routes.length > 12 ? ', ...' : ''}. QA re-tests: ${[...pages, ...extra].map((r) => '`' + r + '`').join(', ')}.`) }
-  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [new URL(env).href, '--max-pages', '5', '--depth', '1', ...imp()]])
+  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [pf ? origin + pf.paths[0] : new URL(env).href, '--max-pages', '5', '--depth', '1', ...imp(), ...au]])
   if (all.length > cap) say(`#${i.number}   the issue lists ${all.length} pages, re-running the first ${cap} (VERIFY_MAX_PAGES); the rest is not covered`)
   let bad = 0, done = 0, next = 0
   const one = ([name, args]) => new Promise((resolve) => {
@@ -249,6 +264,14 @@ async function rerunQa(R, i, env) {
   })
   say(`#${i.number}   ui-qa: ${jobs.length} runs, ${Math.min(num('VERIFY_PARALLEL', 3), jobs.length)} at a time`)
   await Promise.all(Array.from({ length: Math.min(num('VERIFY_PARALLEL', 3), jobs.length) }, async () => { while (next < jobs.length) await one(jobs[next++]) }))
+  // Evidence the eye can read at once: on each issue page, the elements the issue named are boxed red/yellow where the rule still fires, green where it no longer does.
+  const probs = (ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body || '').split(/^### \d+\. /m).slice(1).map((t) => ({ title: t.split('\n')[0].replace(/\s*\((high|medium|low)\)\s*$/, ''), low: /\(low\)\s*\n/.test(t.split('\n')[0] + '\n'), sels: [...t.matchAll(/\[([^\[\]\n]+)\]/g)].map((m) => m[1]) })).filter((q) => q.sels.length)
+  if (probs.length) for (const pg of pages) {
+    const fj = join(dir, `run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, 'findings.json'); let now = []; try { now = JSON.parse(readFileSync(fj, 'utf8')); now = Array.isArray(now) ? now : now.findings || [] } catch { continue }
+    const items = probs.flatMap((q) => [...new Set(q.sels)].map((sel) => { const still = now.some((f) => f.title === q.title && (f.sels || []).includes(sel)); return { sel, color: still ? (q.low ? 'yellow' : 'red') : 'green', label: `${still ? 'STILL WRONG' : 'FIXED'}: ${q.title}` } }))
+    run('node', [setting('UI_QA_BIN') || join(HERE, 'ui-qa.mjs'), origin + pg, '--allow-remote', ...au, '--out', join(dir, 'mark-tmp'), '--mark', JSON.stringify(items), '--mark-out', join(dir, `marked-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}.png`)])
+  }
+  rmSync(join(dir, 'mark-tmp'), { recursive: true, force: true })
   cl.st.rerun.note = `${jobs.length - bad}/${jobs.length} runs${all.length > cap ? `, ${all.length - cap} pages not covered` : ''}`
   return bad < jobs.length ? dir : false
 }
@@ -258,14 +281,16 @@ async function verifyIssue(R, i, env) {
   let dir = ''
   if (num('VERIFY_RERUN', 1)) { dir = await step('rerun', async () => rerunQa(R, i, env) || false); if (!dir) { cl.st.verdict = { s: 'skip', note: 'no ui-qa results to judge' }; return false } } else cl.st.rerun = { s: 'skip', note: 'VERIFY_RERUN=0' }
   const url = issueUrl(R, i.number), rel = dir.replace(ROOT + '/', '')
-  const base = `Use the pct102-qa-verify skill on ${url} --env ${env} --close. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.`
-  const pre = dir ? ` The ui-qa runs are already done by the script, in ${rel}/ (run-*/ for the issue's pages, sweep/ for the sweep; each has report.md, findings.json, screens/). Read them and do NOT run ui-qa yourself (a crawl takes longer than your shell allows). Never create or edit a file under AI_SKILLS_HOME.${cl.impact?.tested?.length ? ` IMPACT CHECK: the fix PR also changed ${cl.impact.files.join(', ')}, which reach other pages. impact-*/ holds ui-qa runs of ${cl.impact.tested.join(', ')}. Any finding there that is new and plausibly caused by the PR (for example a menu or popup cut off, a control blocked, layout broken) is a REGRESSION: the verdict is needs-fix even if the issue's own problems are gone, and the comment names it.` : ''}` : ''
+  const pf = profileOf(R, i.number), local = pf && isLocalUrl(pf.base)
+  const base = `Use the pct102-qa-verify skill on ${url} --env ${pf ? pf.base : env}${local ? '' : ' --close'}. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.${pf ? ` The ui-qa runs were logged in as the "${pf.name}" test role.` : ''}${local ? ' This environment is the project\'s own local server, not a Vercel deploy: the script already proved the merged commit is in it, so skip the deploy check; do NOT close the issue (the script closes it after a verified label).' : ''}`
+  const pre = dir ? ` The ui-qa runs are already done by the script, in ${rel}/ (run-*/ for the issue's pages, sweep/ for the sweep; each has report.md, findings.json, screens/). marked-*.png in the same folder are screenshots with the issue's elements boxed (red/yellow = rule still fires there, green = fixed): attach them first as evidence (--image) and mention which boxes are green and which are not. Read the results and do NOT run ui-qa yourself (a crawl takes longer than your shell allows). Never create or edit a file under AI_SKILLS_HOME.${cl.impact?.tested?.length ? ` IMPACT CHECK: the fix PR also changed ${cl.impact.files.join(', ')}, which reach other pages. impact-*/ holds ui-qa runs of ${cl.impact.tested.join(', ')}. Any finding there that is new and plausibly caused by the PR (for example a menu or popup cut off, a control blocked, layout broken) is a REGRESSION: the verdict is needs-fix even if the issue's own problems are gone, and the comment names it.` : ''}` : ''
   const retry = `Your earlier attempt on ${url} ended without a verdict. The ui-qa results are in ${rel}/. Do only this, quickly: compare the issue's Problems with those results, comment the verdict with screenshots from them, set the label verified or needs-fix, and close the issue only if verified and the fix is live (--close rules of the pct102-qa-verify skill). Do not run ui-qa. Never create or edit a file under AI_SKILLS_HOME. Unattended: never ask questions.`
   return step('verdict', async () => {
     for (const [k, prompt] of [[1, base + pre], [2, retry]]) {
       const r = await agent(ROOT, prompt, `qa-${i.number}`, `#${i.number}`, { lane: `i${i.number}vd${k}`, min: num('VERIFY_TIMEOUT_MIN', 15), what: k === 1 ? 'verify agent' : 'verify agent (second try)' })
       const v = verdictOf(R, i.number)
       cl.st.verdict.note = `model ${r.model || '?'}${v.done ? ', ' + (v.state === 'CLOSED' ? 'closed' : v.labels.includes('verified') ? 'verified' : 'needs-fix') : ''}`
+      if (local && v.labels.includes('verified') && v.state !== 'CLOSED') run('gh', ['issue', 'close', String(i.number), '--repo', R, '--reason', 'completed'])
       if (v.done) { card(R, i.number); return true }
     }
     tag(R, i.number, 'needs-human'); note(R, i.number, `Automatic verification did not reach a verdict. The ui-qa results are in ${rel}/ on the machine that ran the loop. A person needs to look at it.`)
@@ -301,8 +326,8 @@ async function fixOne(R, i, maxTry, env) {
   const finish = () => { const rows = summary(); card(R, i.number, { note: outcome }); cards[cards.length - 1] += `\n\`\`\`\n${rows.join('\n')}\n\`\`\`\n` }
   // Work already on GitHub (an earlier run timed out after pushing, or a person fixed the CI): reuse it, don't pay an agent to redo it.
   await step('reuse', async () => {
-    pr = prFor(R, i.number, 'open')
-    if (!pr) {
+    pr = i.labels.includes('needs-fix') ? null : prFor(R, i.number, 'open') // needs-fix = QA rejected the work already on GitHub: a new agent must read the verdict, never re-merge the old branch
+    if (!pr && !i.labels.includes('needs-fix')) {
       const br = run('git', ['ls-remote', '--heads', 'origin', `fix/issue-${i.number}-*`]).stdout.trim().split('\n')[0]?.split('refs/heads/')[1]
       // A branch whose PR is already merged and that has no newer commit holds nothing new: a PR from it would merge the old fix again.
       const stale = br && (ghJson(['pr', 'list', '--repo', R, '--head', br, '--state', 'merged', '--json', 'mergedAt']) || []).some((m) => m.mergedAt >= run('git', ['log', '-1', '--format=%cI', `origin/${br}`]).stdout.trim())
@@ -325,7 +350,7 @@ async function fixOne(R, i, maxTry, env) {
     const ready = await step('fix', async () => {
       if (run('git', ['worktree', 'add', '--detach', wt, `origin/${BASE}`]).status) { say(`#${i.number}: cannot create a worktree from origin/${BASE}`); return false }
       fillWt(wt)
-      const r = await agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.`, `dev-${i.number}`, `#${i.number}`, { lane: `i${i.number}fx${tries + 1}`, what: `fix agent (attempt ${tries + 1}/${maxTry})` })
+      const r = await agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.${(() => { const pf = profileOf(R, i.number); return pf ? ` The problem was found logged in as the test role "${pf.name}" on ${pf.base}: run ui-qa for its pages with --auth ${pf.auth} (never print or copy that file). Start the app from your worktree on a free port; the saved login works on any localhost port.` : '' })()}${i.labels.includes('needs-fix') ? ` An earlier fix for this issue was merged and QA rejected it: read the latest 'Verdict: FAIL' comment and every comment after it, fix exactly what they say (the old change stays in dev; add to it), and push a NEW branch named fix/issue-${i.number}-v${tries + 1}-<slug>, never the old branch.` : ''}`, `dev-${i.number}`, `#${i.number}`, { lane: `i${i.number}fx${tries + 1}`, what: `fix agent (attempt ${tries + 1}/${maxTry})` })
       killIn(wt); run('git', ['worktree', 'remove', '--force', wt])
       const now = issues(R, 'auto-fix').find((x) => x.number === i.number); pr = prFor(R, i.number, 'open')
       cl.st.fix.note = `model ${r.model || '?'}, ${now?.labels.includes('ready-for-test') && pr ? 'PR #' + pr.number : now?.labels.includes('needs-human') ? 'handed to a person' : 'no ready-for-test result, stays queued'}`
@@ -356,7 +381,8 @@ async function fix() {
   // ponytail: one issue at a time. dev-fix starts the app for before/after evidence, so parallel fixers would fight over ports; add worktree-per-agent parallelism if the queue grows.
   for (const [k, i] of todo.entries()) {
     say(`── issue ${k + 1}/${todo.length} ── ${todo.length - k} left, about ${dur(per * (todo.length - k))}`)
-    if (await fixOne(R, i, maxTry, env) === 'stop') break
+    const pf = env ? profileOf(R, i.number) : null
+    if (await fixOne(R, i, maxTry, pf && isLocalUrl(pf.base) ? '' : env) === 'stop') break
   }
 }
 
@@ -370,7 +396,12 @@ async function verify() {
   for (const i of todo) {
     // cheap pre-checks before any tokens are spent; qa-verify repeats them on its own
     if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
-    if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
+    const pf = profileOf(R, i.number)
+    if (pf && isLocalUrl(pf.base)) { // a local server: the merged commit must be in this checkout (git pull; the dev server reloads) and the server must answer
+      const sha = ghJson(['pr', 'view', String(prFor(R, i.number, 'merged').number), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid; run('git', ['fetch', 'origin', BASE])
+      const why = !sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
+      if (why) { say(`#${i.number}: ${why}, skipped`); card(R, i.number, { note: `skipped: ${why}` }); continue }
+    } else if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
     begin(i.number, ['rerun', 'verdict']); say(`#${i.number} ${i.title}`)
     await verifyIssue(R, i, env)
     const rows = summary(); card(R, i.number); cards[cards.length - 1] += `\n\`\`\`\n${rows.join('\n')}\n\`\`\`\n`

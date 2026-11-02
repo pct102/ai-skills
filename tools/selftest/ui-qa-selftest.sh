@@ -82,7 +82,7 @@ http.createServer((q, s) => { if (q.method === 'POST') appendFileSync(process.ar
 JS
 node "$T/srv.mjs" "$T/posts" > "$T/port" & SRV=$!
 for _ in $(seq 50); do [ -s "$T/port" ] && break; sleep 0.1; done
-(cd "$PW_DIR" && node "$UQ" "http://127.0.0.1:$(cat "$T/port")/" --max-pages 1 --out "$T/out" >/dev/null 2>&1); check "run exits 0 or 1 (never a tool error)" 1 $(( $? <= 1 ? 1 : 0 ))
+(cd "$PW_DIR" && node "$UQ" "http://127.0.0.1:$(cat "$T/port")/" --max-pages 1 --profile fx --out "$T/out" >/dev/null 2>&1); check "run exits 0 or 1 (never a tool error)" 1 $(( $? <= 1 ? 1 : 0 ))
 cats="$(node -e "console.log([...new Set(require('$T/out/findings.json').findings.map(f=>f.cat))].sort().join())" 2>/dev/null)"
 for c in responsive contrast console-error; do case ",$cats," in *",$c,"*) check "reports $c" ok ok ;; *) check "reports $c" ok "missing ($cats)" ;; esac; done
 f="$(cat "$T/out/findings.json")"
@@ -92,6 +92,9 @@ check "a popup cut off by overflow:hidden is reported" "1" "$(printf '%s' "$f" |
 check "dev overlay is ignored (focus, console noise)" "0" "$(printf '%s' "$f" | grep -cE 'nextjs-portal|script tag')"
 check "no POST reached the server" "0" "$(cat "$T/posts" 2>/dev/null | wc -l | tr -d ' ')"
 check "drafts carry a priority and no 'Expected: undefined'" "yes" "$(grep -q '"priority": "' "$T/out/issues.json" && ! grep -rq 'Expected:\*\* undefined' "$T/out/issues" && echo yes)"
+(cd "$PW_DIR" && node "$UQ" "http://127.0.0.1:$(cat "$T/port")/" --out "$T/mk" --mark '[{"sel":"p.f","color":"green","label":"FIXED"},{"sel":".w","color":"red","label":"STILL"}]' --mark-out "$T/marked.png" >/dev/null 2>&1)
+check "--mark boxes elements in a screenshot (red/yellow still wrong, green fixed)" "yes" "$([ -s "$T/marked.png" ] && echo yes)"
+check "--profile names the role in the issue title and body" "yes" "$(grep -q '(fx)' "$T/out/issues.json" && grep -rq 'QA profile:\*\* fx' "$T/out/issues" && echo yes)"
 check "issue drafts written" "yes" "$([ -s "$T/out/issues.json" ] && echo yes)"
 
 echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]

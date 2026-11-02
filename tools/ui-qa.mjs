@@ -19,7 +19,7 @@
 // Exit: 0 done | 1 high-severity findings, or a tool/setup error | 3 usage error
 import { createRequire } from 'node:module'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { setting } from './lib/setting.mjs'
@@ -328,24 +328,73 @@ async function interact(c, path, url) {
   }
 }
 
+// ---------- evidence screenshots with the faulty element boxed: red = real defect, yellow = polish, green = fixed (the verify step uses it)
+const MARK_COLOR = { red: '#e5484d', yellow: '#f5a524', green: '#16a34a' }
+async function markShot(page, items, file) { // items: [{ sel, color: red|yellow|green, label }]; -> number of elements boxed
+  const n = await page.evaluate(({ items, C }) => {
+    let n = 0, first = null
+    const boxes = items.flatMap((it) => { let els = []; try { els = [...document.querySelectorAll(it.sel)].slice(0, 6) } catch {} return els.filter((e) => e.getClientRects().length).map((e) => [e, it]) })
+    if (!boxes.length) return 0
+    boxes[0][0].scrollIntoView({ block: 'center', inline: 'nearest' })
+    for (const [e, it] of boxes) {
+      const r = e.getBoundingClientRect(); if (r.width < 2 || r.height < 2) continue
+      const col = C[it.color] || C.red, d = document.createElement('div')
+      d.setAttribute('data-uqa-mark', '1'); d.style.cssText = `position:absolute;z-index:2147483647;pointer-events:none;left:${r.left + scrollX - 3}px;top:${r.top + scrollY - 3}px;width:${r.width + 6}px;height:${r.height + 6}px;outline:3px solid ${col};background:${col}22;border-radius:4px`
+      const t = document.createElement('span'); t.textContent = it.label; t.style.cssText = `position:absolute;left:0;bottom:100%;margin-bottom:2px;font:700 11px/1.3 system-ui,sans-serif;color:#fff;background:${col};padding:1px 6px;border-radius:3px;white-space:nowrap`
+      d.appendChild(t); document.body.appendChild(d); n++
+    }
+    return n
+  }, { items, C: MARK_COLOR }).catch(() => 0)
+  if (n) await page.screenshot({ path: file, animations: 'disabled' }).catch(() => {})
+  return n
+}
+// ui-qa.mjs <url> --login <state.json>: opens a normal Chrome with its own profile (kept in ~/.config/ui-qa/chrome-profile, so Google sign-in works and survives),
+// you sign in, press Enter here, the session is saved to <state.json> (mode 600; it is a password: never commit it).
+if (has('login')) {
+  const { spawn } = await import('node:child_process'), { homedir } = await import('node:os'), { chmodSync } = await import('node:fs'), save = flag('login', ''), port = 9223
+  const bin = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((x) => existsSync(x)) || die(1, 'Google Chrome not found')
+  if (!save) die(3, 'usage: ui-qa.mjs <url> --login <state.json>')
+  const ch = spawn(bin, [`--remote-debugging-port=${port}`, `--user-data-dir=${join(homedir(), '.config', 'ui-qa', 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check', argv[0]], { stdio: 'ignore', detached: true }); ch.unref()
+  console.log(`A Chrome window opened on ${argv[0]}. Sign in there, wait until you see the logged-in app, then press Enter here.`)
+  await new Promise((r) => process.stdin.once('data', r))
+  const b = await chromium.connectOverCDP(`http://127.0.0.1:${port}`).catch((e) => die(1, `cannot reach that Chrome: ${e.message.split('\n')[0]}`))
+  mkdirSync(dirname(resolve(save)), { recursive: true }); await b.contexts()[0].storageState({ path: resolve(save) }); chmodSync(resolve(save), 0o600)
+  await b.close().catch(() => {}); try { process.kill(-ch.pid) } catch { try { process.kill(ch.pid) } catch {} }
+  console.log(`saved ${resolve(save)} (mode 600). Do not commit it.`); process.exit(0)
+}
+
+// ui-qa.mjs <url> --mark '[{"sel":"…","color":"green","label":"FIXED"}]' --mark-out <png> [--scheme dark] [--auth state.json] [--out <dir>]: one marked screenshot, no crawl
+if (has('mark')) {
+  const b = await chromium.launch({ headless: true }), c = await open(b, VIEWPORTS[3], flag('scheme', 'light'))
+  await c.page.goto(argv[0], { timeout: 20000 }).catch(() => {}); await c.page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {}); await c.page.waitForTimeout(500)
+  const n = await markShot(c.page, JSON.parse(flag('mark', '[]')), flag('mark-out', 'marked.png')); await b.close()
+  console.log(n ? `marked ${n} element(s): ${flag('mark-out', 'marked.png')}` : 'nothing to mark (selectors not found)'); process.exit(0)
+}
+
 // ---------- Impeccable (https://github.com/pbakaus/impeccable, Apache-2.0): 60+ deterministic design rules run on the rendered page by a
 // pinned, third-party CLI (npx runs its native binary). Real defects it sees and we do not (text over images, 8px text, skipped headings)
 // become medium; style opinions ("AI slop": gradient text, glows...) stay low so they never file an issue by default.
 const IMP_VER = flag('impeccable-version', process.env.IMPECCABLE_VERSION || '4.8.0')
 const IMP_REAL = new Set(['low-contrast', 'gray-on-color', 'text-occlusion', 'text-overflow', 'clipped-overflow-container', 'broken-image', 'script-error', 'first-viewport-column-overflow', 'content-hidden-at-rest', 'body-text-viewport-edge'])
 let impOff = has('impeccable') ? '' : 'off (add --impeccable; about 50 s per page)'
-function impeccable(url, path) {
+async function impeccable(url, path) {
   if (impOff) return
   const rules = new Map()
   for (const vp of ['1280x800', '390x844']) {
     const r = spawnSync('npx', ['--yes', `impeccable@${IMP_VER}`, 'detect', '--json', '--viewport', vp, url], { encoding: 'utf8', timeout: 120000 })
     let list; try { list = JSON.parse(r.stdout) } catch { impOff = `impeccable@${IMP_VER} did not run (${(r.error?.message || r.stderr || 'no output').trim().split('\n')[0].slice(0, 100)})`; return }
-    for (const x of list) { const e = rules.get(x.antipattern) || { x, d: new Set(), vps: new Set() }; e.d.add(`${x.snippet} [${x.selector}]`); e.vps.add(vp); rules.set(x.antipattern, e) }
+    for (const x of list) { const e = rules.get(x.antipattern) || { x, d: new Set(), vps: new Set(), sels: new Set() }; e.d.add(`${x.snippet} [${x.selector}]`); if (x.selector) e.sels.add(x.selector); e.vps.add(vp); rules.set(x.antipattern, e) }
   }
-  for (const [id, { x, d, vps }] of rules) add({
-    sev: IMP_REAL.has(id) ? 'medium' : 'low', cat: ['low-contrast', 'gray-on-color'].includes(id) ? 'contrast' : 'design', title: `${x.name} (${id})`, path, ctx: `impeccable-${[...vps].join('+')}`,
-    detail: `${x.category}/${x.severity}: ${[...d].slice(0, 3).join('; ')}${d.size > 3 ? ` (+${d.size - 3} more)` : ''}`, shot: `screens/${slug(path)}-desktop-light.png`,
-  })
+  let c = null // one desktop page to box the offending elements in each rule's evidence screenshot
+  if (rules.size) { c = await open(browser, VIEWPORTS[3], 'light'); await c.page.goto(url, { timeout: 15000 }).catch(() => {}); await c.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {}); await c.page.waitForTimeout(500) }
+  for (const [id, { x, d, vps, sels }] of rules) {
+    const sev = IMP_REAL.has(id) ? 'medium' : 'low', shot = `screens/${slug(path)}-${id}-marked.png`
+    const n = c ? await markShot(c.page, [...sels].map((sel) => ({ sel, color: sev === 'low' ? 'yellow' : 'red', label: x.name })), join(out, shot)) : 0
+    if (c) await c.page.evaluate(() => document.querySelectorAll('[data-uqa-mark]').forEach((e) => e.remove())).catch(() => {})
+    add({ sev, cat: ['low-contrast', 'gray-on-color'].includes(id) ? 'contrast' : 'design', title: `${x.name} (${id})`, path, ctx: `impeccable-${[...vps].join('+')}`, sels: [...sels],
+      detail: `${x.category}/${x.severity}: ${[...d].slice(0, 3).join('; ')}${d.size > 3 ? ` (+${d.size - 3} more)` : ''}`, shot: n ? shot : `screens/${slug(path)}-desktop-light.png` })
+  }
+  await c?.ctx.close().catch(() => {})
 }
 
 // ---------- run
@@ -365,6 +414,7 @@ while (queue.length && stats.pages < MAX_PAGES) {
     try {
       const resp = await c.page.goto(url, { timeout: 15000 }).catch((e) => { add({ sev: 'high', cat: 'page-load', title: 'Page failed to load', detail: e.message.split('\n')[0], path, ctx: c.name, shot: '' }); return null })
       if (!resp) continue
+      if (flag('auth', '') && /\/(log.?in|sign.?in)\b/i.test(new URL(c.page.url()).pathname) && !/log.?in|sign.?in/i.test(path)) die(2, `the saved session (${flag('auth')}) was sent to the login page from ${path}: it expired or does not match this server. Log in again.`)
       if (resp.status() >= 400) add({ sev: 'high', cat: 'page-load', title: `Page returns HTTP ${resp.status()}`, detail: '', path, ctx: c.name, shot: '' })
       await c.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {})
       await c.page.waitForTimeout(500)
@@ -382,7 +432,7 @@ while (queue.length && stats.pages < MAX_PAGES) {
       if (light && (vp.n === 'desktop' || vp.n === 'mobile')) await interact(c, path, url)
     } finally { await c.ctx.close() }
   }
-  impeccable(url, path)
+  await impeccable(url, path)
   if (anims) { // same page with prefers-reduced-motion: reduce
     const c = await open(browser, VIEWPORTS[3], 'light', { reducedMotion: 'reduce' })
     try {
@@ -424,6 +474,7 @@ const polish = has('design-polish') && has('impeccable'), isPolish = (f) => poli
 const areas = [...new Set(all.filter((f) => bySev.includes(f.sev) && !isPolish(f)).map((f) => AREA[f.cat] || 'runtime'))]
   .sort((x, y) => Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === y && !isPolish(f)).map((f) => SEV[f.sev])) - Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === x && !isPolish(f)).map((f) => SEV[f.sev]))).slice(0, MAX_ISSUES)
 // Priority = how much a fix can touch: high = a crash or 6+ pages, medium = 2+ pages, low = one page. A person can still relabel.
+const PROFILE = flag('profile', ''), ON = root.host + (PROFILE ? ` (${PROFILE})` : '') // a run logged in as a role (--auth) names it, so roles never share an issue
 const priorityOf = (fs, polish) => polish ? 'low' : fs.some((f) => f.sev === 'high') || new Set(fs.map((f) => f.path)).size >= 6 ? 'high' : new Set(fs.map((f) => f.path)).size >= 2 ? 'medium' : 'low'
 const mkDraft = (area, fs, body, title, design) => {
   
@@ -433,7 +484,7 @@ const mkDraft = (area, fs, body, title, design) => {
   const pages = [...new Set(fs.map((f) => f.path))], prio = priorityOf(fs, design)
   writeFileSync(join(out, body), [
     '## Summary', `A black-box UI check (\`ui-qa\`, no source read) of ${root.href} on ${new Date().toISOString().slice(0, 10)} found ${list.length} problem(s) in one area: **${AREA_LABEL[area]}**. They are filed together because they are usually fixed together: fix the shared cause once (a global style, a theme token, a shared component) and check every item below before marking it ready.`, '',
-    `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, `**Priority:** ${prio} · impact: ${pages.length} page(s), ${list.length} problem(s)${design ? ' · design polish (a taste call: follow the project design system)' : ''}`, '', '## Problems', '',
+    `**Affected pages:** ${pages.map((x) => `\`${x}\``).join(', ')}`, ...(PROFILE ? [`**QA profile:** ${PROFILE} (logged in as this role; ${root.origin})`] : []), `**Priority:** ${prio} · impact: ${pages.length} page(s), ${list.length} problem(s)${design ? ' · design polish (a taste call: follow the project design system)' : ''}`, '', '## Problems', '',
     renderProblems(list),
     '## How to reproduce', `\`node tools/ui-qa.mjs ${root.href}\`. Open the page at the listed viewport and theme (the context names are viewport-theme, for example mobile-dark).`, '',
     '## Notes for the fixer', '- Search for siblings: the same cause often shows on other pages, themes or components than the ones listed.', '- Do not close this issue yourself: a separate QA pass verifies the fix on the deployed environment.', '',
@@ -442,11 +493,11 @@ const mkDraft = (area, fs, body, title, design) => {
   const shots = [...new Set(fs.filter((f) => f.shot && existsSync(join(out, f.shot))).map((f) => f.shot))].slice(0, 4) // already worst-first
   return { title, priority: prio, design: !!design, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
 }
-const drafts = areas.map((area, n) => mkDraft(area, all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev) && !isPolish(f)), `issues/${String(n + 1).padStart(2, '0')}-${area}.md`, `[ui-qa] ${AREA_LABEL[area]} on ${root.host}`, false))
+const drafts = areas.map((area, n) => mkDraft(area, all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev) && !isPolish(f)), `issues/${String(n + 1).padStart(2, '0')}-${area}.md`, `[ui-qa] ${AREA_LABEL[area]} on ${ON}`, false))
 if (polish) { // one issue per design rule, the widest first
   const rules = new Map(); for (const f of all.filter(isPolish)) rules.set(f.title, [...(rules.get(f.title) || []), f])
   ;[...rules].sort((x, y) => new Set(y[1].map((f) => f.path)).size - new Set(x[1].map((f) => f.path)).size).slice(0, +flag('max-design-issues', 6))
-    .forEach(([title, fs], n) => drafts.push(mkDraft('design', fs, `issues/d${String(n + 1).padStart(2, '0')}-design.md`, `[ui-qa] Design: ${title} on ${root.host}`, true)))
+    .forEach(([title, fs], n) => drafts.push(mkDraft('design', fs, `issues/d${String(n + 1).padStart(2, '0')}-design.md`, `[ui-qa] Design: ${title} on ${ON}`, true)))
 }
 writeFileSync(join(out, 'issues.json'), JSON.stringify(drafts, null, 2))
 
