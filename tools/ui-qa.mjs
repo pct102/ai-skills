@@ -56,9 +56,9 @@ if (argv[0] === 'file') {
       let seen = ''; try { const j = JSON.parse(v.stdout); seen = [j.body, ...j.comments.map((c) => c.body)].join('\n') } catch {}
       const fresh = i.problems.map((q) => ({ ...q, rows: q.rows.filter((f) => !(seen.includes(q.title) && seen.includes('`' + f.path + '`'))) })).filter((q) => q.rows.length)
       if (!fresh.length) { console.log(`  ${m[2]}: nothing new since the issue was filed`); continue }
-      text = `New ui-qa run on ${date}: ${fresh.reduce((n, q) => n + q.rows.length, 0)} finding(s) this issue does not list yet.\n\n${renderProblems(fresh)}`
+      text = `New ui-qa run on ${date}${i.profile ? ` as ${i.profile}` : ''} (${i.origin}): ${fresh.reduce((n, q) => n + q.rows.length, 0)} finding(s) this issue does not list yet.\n\n${renderProblems(fresh)}`
       shots = has('with-images') ? [...new Set(fresh.flatMap((q) => q.rows.map((f) => f.shot)).filter(Boolean))].slice(0, 4).map((x) => join(dir, x)).filter(existsSync) : []
-    } else if (again) text = `New ui-qa run on ${date} found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}`
+    } else if (again) text = `New ui-qa run on ${date}${i.profile ? ` as ${i.profile}` : ''} (${i.origin}) found this again:\n\n${readFileSync(join(dir, i.body), 'utf8')}`
     else if (!shots.length) continue // a fresh issue needs no comment unless it carries images
     const c = sdlc(['comment', '--key', m[2], '--body', text, ...shots.flatMap((x) => ['--image', x])])
     console.log([c.stdout, c.stderr].map((x) => x.trim()).filter(Boolean).join('\n')); if (c.status) bad = 1
@@ -474,7 +474,7 @@ const polish = has('design-polish') && has('impeccable'), isPolish = (f) => poli
 const areas = [...new Set(all.filter((f) => bySev.includes(f.sev) && !isPolish(f)).map((f) => AREA[f.cat] || 'runtime'))]
   .sort((x, y) => Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === y && !isPolish(f)).map((f) => SEV[f.sev])) - Math.max(...all.filter((f) => (AREA[f.cat] || 'runtime') === x && !isPolish(f)).map((f) => SEV[f.sev]))).slice(0, MAX_ISSUES)
 // Priority = how much a fix can touch: high = a crash or 6+ pages, medium = 2+ pages, low = one page. A person can still relabel.
-const PROFILE = flag('profile', ''), ON = root.host + (PROFILE ? ` (${PROFILE})` : '') // a run logged in as a role (--auth) names it, so roles never share an issue
+const PROFILE = flag('profile', '') // the role a --auth run is logged in as. Not in the title: the same problem seen by another role or on another server is one issue (a rerun adds only what is new)
 const priorityOf = (fs, polish) => polish ? 'low' : fs.some((f) => f.sev === 'high') || new Set(fs.map((f) => f.path)).size >= 6 ? 'high' : new Set(fs.map((f) => f.path)).size >= 2 ? 'medium' : 'low'
 const mkDraft = (area, fs, body, title, design) => {
   
@@ -491,13 +491,13 @@ const mkDraft = (area, fs, body, title, design) => {
     '_Screenshot paths are relative to the ui-qa report folder on the reporter\'s machine; with --with-images they are attached in a comment._',
   ].join('\n'))
   const shots = [...new Set(fs.filter((f) => f.shot && existsSync(join(out, f.shot))).map((f) => f.shot))].slice(0, 4) // already worst-first
-  return { title, priority: prio, design: !!design, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
+  return { title, profile: PROFILE, origin: root.origin, priority: prio, design: !!design, body, findings: list.length, shots, problems: list.map(({ cat, title, sev, expected, rows }) => ({ cat, title, sev, expected, rows: rows.map((f) => ({ path: f.path, ctxs: [...f.ctxs], detail: f.detail, shot: f.shot })) })) }
 }
-const drafts = areas.map((area, n) => mkDraft(area, all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev) && !isPolish(f)), `issues/${String(n + 1).padStart(2, '0')}-${area}.md`, `[ui-qa] ${AREA_LABEL[area]} on ${ON}`, false))
+const drafts = areas.map((area, n) => mkDraft(area, all.filter((f) => (AREA[f.cat] || 'runtime') === area && bySev.includes(f.sev) && !isPolish(f)), `issues/${String(n + 1).padStart(2, '0')}-${area}.md`, `[ui-qa] ${AREA_LABEL[area]}`, false))
 if (polish) { // one issue per design rule, the widest first
   const rules = new Map(); for (const f of all.filter(isPolish)) rules.set(f.title, [...(rules.get(f.title) || []), f])
   ;[...rules].sort((x, y) => new Set(y[1].map((f) => f.path)).size - new Set(x[1].map((f) => f.path)).size).slice(0, +flag('max-design-issues', 6))
-    .forEach(([title, fs], n) => drafts.push(mkDraft('design', fs, `issues/d${String(n + 1).padStart(2, '0')}-design.md`, `[ui-qa] Design: ${title} on ${ON}`, true)))
+    .forEach(([title, fs], n) => drafts.push(mkDraft('design', fs, `issues/d${String(n + 1).padStart(2, '0')}-design.md`, `[ui-qa] Design: ${title}`, true)))
 }
 writeFileSync(join(out, 'issues.json'), JSON.stringify(drafts, null, 2))
 

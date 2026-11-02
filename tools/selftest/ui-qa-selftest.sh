@@ -94,7 +94,7 @@ check "no POST reached the server" "0" "$(cat "$T/posts" 2>/dev/null | wc -l | t
 check "drafts carry a priority and no 'Expected: undefined'" "yes" "$(grep -q '"priority": "' "$T/out/issues.json" && ! grep -rq 'Expected:\*\* undefined' "$T/out/issues" && echo yes)"
 (cd "$PW_DIR" && node "$UQ" "http://127.0.0.1:$(cat "$T/port")/" --out "$T/mk" --mark '[{"sel":"p.f","color":"green","label":"FIXED"},{"sel":".w","color":"red","label":"STILL"}]' --mark-out "$T/marked.png" >/dev/null 2>&1)
 check "--mark boxes elements in a screenshot (red/yellow still wrong, green fixed)" "yes" "$([ -s "$T/marked.png" ] && echo yes)"
-check "--profile names the role in the issue title and body" "yes" "$(grep -q '(fx)' "$T/out/issues.json" && grep -rq 'QA profile:\*\* fx' "$T/out/issues" && echo yes)"
+check "--profile is in the body, not the title (one issue across roles and servers)" "yes" "$(! grep -q '"title": "[^"]*(fx)' "$T/out/issues.json" && grep -rq 'QA profile:\*\* fx' "$T/out/issues" && echo yes)"
 check "issue drafts written" "yes" "$([ -s "$T/out/issues.json" ] && echo yes)"
 
 echo "passed=$pass failed=$fail"; [ "$fail" = 0 ]
