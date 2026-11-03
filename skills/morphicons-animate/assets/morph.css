@@ -1,0 +1,35 @@
+/* morphicons-animate: icons that move when they are clicked or hovered. Transforms only (works in every browser, runs on the GPU).
+   State comes from aria-expanded / aria-pressed / data-state on the button; the SVG only listens. */
+.mi { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.mi * { transform-box: fill-box; transform-origin: center; transition: transform 280ms cubic-bezier(.4, 0, .2, 1), opacity 200ms, fill 200ms; }
+
+/* hamburger <-> close: three bars; the outer two travel to the middle and cross */
+.mi-menu .t { transform: translateY(-6px) } .mi-menu .b { transform: translateY(6px) }
+[aria-expanded="true"] .mi-menu .t { transform: rotate(45deg) } [aria-expanded="true"] .mi-menu .b { transform: rotate(-45deg) }
+[aria-expanded="true"] .mi-menu .m { opacity: 0; transform: scaleX(0) }
+
+/* plus <-> minus: the vertical bar turns flat */
+[aria-expanded="true"] .mi-plus .v { transform: rotate(90deg); opacity: 0 }
+
+/* chevron down <-> up */
+[aria-expanded="true"] .mi-chev { transform: rotate(180deg) }
+
+/* heart / bookmark: fills and pops on press */
+.mi-heart path { transform: scale(1) }
+[aria-pressed="true"] .mi-heart path { fill: currentColor; animation: mi-pop 360ms cubic-bezier(.3, 1.6, .5, 1) }
+@keyframes mi-pop { 0% { transform: scale(.7) } 60% { transform: scale(1.25) } 100% { transform: scale(1) } }
+
+/* sun <-> moon: swap with a turn */
+.mi-theme .moon { opacity: 0; transform: rotate(-90deg) scale(.4) }
+[aria-pressed="true"] .mi-theme .sun { opacity: 0; transform: rotate(90deg) scale(.4) }
+[aria-pressed="true"] .mi-theme .moon { opacity: 1; transform: none }
+
+/* bell: swing on hover or focus (hint that it is clickable) */
+.mi-bell .swing { transform-origin: 50% 2px }
+button:hover .mi-bell .swing, button:focus-visible .mi-bell .swing { animation: mi-ring 600ms ease-in-out }
+@keyframes mi-ring { 0%, 100% { transform: rotate(0) } 20% { transform: rotate(14deg) } 40% { transform: rotate(-12deg) } 60% { transform: rotate(8deg) } 80% { transform: rotate(-5deg) } }
+
+/* arrow nudge on hover (links, "next", "more") */
+button:hover .mi-nudge, a:hover .mi-nudge { transform: translateX(3px) }
+
+@media (prefers-reduced-motion: reduce) { .mi *, .mi { transition: none !important; animation: none !important } }

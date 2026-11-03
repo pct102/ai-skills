@@ -14,6 +14,7 @@ Personal AI software delivery skills.
 - `pct102-dev-fix`: fixes one small GitHub issue from its URL, comments before/after evidence, sets `ready-for-test` (no autopilot)
 - `pct102-qa-verify`: independently verifies a `ready-for-test` issue (on the local app or a deployed env URL), sweeps for sibling defects, sets `verified` or `needs-fix`, and closes it with `--close` when the fix is live
 - `pct102-qa-review` (`qareview`): completes an issue a person filed by hand (not from ui-qa): reproduces it, appends steps / expected / actual / affected pages, retitles it `[QA] <Area>: <problem>`, and labels it `qa-reviewed` + `auto-fix` (so `devfix` takes it) or `needs-info` when it cannot be reproduced
+- `morphicons-animate`: makes interactive icons move (hamburger to X, plus to minus, chevron, heart pop, sun to moon, bell swing, arrow nudge) with transform-only CSS driven by `aria-expanded` / `aria-pressed`; reduced-motion safe; stylesheet in `assets/morph.css`
 - `pct102-qa-lead-check` / `pct102-dev-lead-fix` / `pct102-qa-lead-verify`: the three stages of the by-hand QA loop (`tools/sdlc-daily.mjs check|fix|verify`): file grouped issues with screenshots from a crawl of the deployed dev URL, fix each with a fresh agent and gate-merge its PR into dev, verify and close on the deployed env. Each stage writes a markdown report
 
 `tools/` is the part that decides whether work actually passed. See **The machine layer**

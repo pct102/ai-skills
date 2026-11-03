@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>morphicons demo</title>
+<link rel="stylesheet" href="../assets/morph.css">
+<style>body{font:16px system-ui;padding:32px;display:flex;gap:16px;flex-wrap:wrap;color:#312e81}button{display:grid;place-items:center;width:56px;height:56px;border:1px solid #c7d2fe;border-radius:16px;background:#fff;color:inherit;cursor:pointer}button:focus-visible{outline:3px solid #6366f1;outline-offset:2px}</style>
+<button aria-expanded="false" aria-label="Menu"><svg class="mi mi-menu" viewBox="0 0 24 24" aria-hidden="true"><path class="t" d="M4 12h16"/><path class="m" d="M4 12h16"/><path class="b" d="M4 12h16"/></svg></button>
+<button aria-expanded="false" aria-label="Expand"><svg class="mi mi-plus" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path class="v" d="M12 5v14"/></svg></button>
+<button aria-expanded="false" aria-label="Details"><svg class="mi mi-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+<button aria-pressed="false" aria-label="Like"><svg class="mi mi-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.600-9 9-9 9z"/></svg></button>
+<button aria-pressed="false" aria-label="Dark mode"><svg class="mi mi-theme" viewBox="0 0 24 24" aria-hidden="true"><g class="sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.500 1.500M17.500 17.500L19 19M5 19l1.500-1.500M17.500 6.500L19 5"/></g><path class="moon" d="M20 14.500A8 8 0 1 1 9.500 4a6.500 6.500 0 0 0 10.500 10.500z"/></svg></button>
+<button aria-label="Notifications"><svg class="mi mi-bell" viewBox="0 0 24 24" aria-hidden="true"><g class="swing"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.500 2h-15z"/><path d="M10 21h4"/></g></svg></button>
+<button aria-label="Next"><svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path class="mi-nudge" d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+<script>document.querySelectorAll('button[aria-expanded]').forEach(b=>b.onclick=()=>b.setAttribute('aria-expanded',b.getAttribute('aria-expanded')!=='true'));document.querySelectorAll('button[aria-pressed]').forEach(b=>b.onclick=()=>b.setAttribute('aria-pressed',b.getAttribute('aria-pressed')!=='true'))</script>

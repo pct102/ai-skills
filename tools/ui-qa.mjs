@@ -371,7 +371,7 @@ if (has('login')) {
 
 // ui-qa.mjs <url> --mark '[{"sel":"…","color":"green","label":"FIXED"}]' --mark-out <png> [--scheme dark] [--auth state.json] [--out <dir>]: one marked screenshot, no crawl
 if (has('mark')) {
-  const b = await chromium.launch({ headless: true }), c = await open(b, VIEWPORTS[3], flag('scheme', 'light'))
+  const mw = +flag('width', 0), b = await chromium.launch({ headless: true }), c = await open(b, mw ? { n: 'w' + mw, w: mw, h: 900 } : VIEWPORTS[3], flag('scheme', 'light'))
   await c.page.goto(argv[0], { timeout: 20000 }).catch(() => {}); await c.page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {}); await c.page.waitForTimeout(500)
   const n = await markShot(c.page, JSON.parse(flag('mark', '[]')), flag('mark-out', 'marked.png')); await b.close()
   console.log(n ? `marked ${n} element(s): ${flag('mark-out', 'marked.png')}` : 'nothing to mark (selectors not found)'); process.exit(0)

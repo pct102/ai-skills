@@ -9,6 +9,10 @@ description: Guides frontend component selection and integration using reusable 
 
 Turn visual ideas and component-library choices into maintainable frontend implementations. This skill is a playbook, not a copy of a component catalog. It teaches when to reuse, adapt, or reject a component.
 
+## Interactive icons
+
+For icon buttons that toggle or invite a click (menu, expand, like, theme, bell, next arrow), use the `morphicons-animate` skill: transform-only CSS driven by `aria-expanded` / `aria-pressed`, reduced-motion safe. Do not add an animation library for this.
+
 ## Source library
 
 React Bits is a useful reference catalog at `https://github.com/DavidHDev/react-bits`. It provides animated and customizable React components across text, UI, micro-interactions, and backgrounds, with JavaScript/TypeScript and CSS/Tailwind variants.
