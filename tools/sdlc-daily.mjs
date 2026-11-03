@@ -80,7 +80,8 @@ function summary() { // the whole checklist of the issue: terminal, log and repo
   return rows
 }
 
-const ghOut = (a) => { const r = run('gh', a); if (r.status !== 0) throw new Error(`gh ${a.slice(0, 3).join(' ')}: ${(r.stderr || '').trim().slice(0, 200)}`); return r.stdout }
+// GitHub answers 502/503/timeouts now and then; one blip must not kill a 20-minute issue run: retry those (not 4xx) after 3, 8 and 20 s.
+const ghOut = (a) => { let r; for (const wait of [3000, 8000, 20000, 0]) { r = run('gh', a); if (r.status === 0 || !/HTTP 5\d\d|timed? ?out|timeout|connection|EOF|reset by peer|temporar|unavailable|TLS|no such host/i.test(r.stderr || '')) break; if (wait) sleep(wait) } if (r.status !== 0) throw new Error(`gh ${a.slice(0, 3).join(' ')}: ${(r.stderr || '').trim().slice(0, 200)}`); return r.stdout }
 const ghJson = (a) => JSON.parse(ghOut(a) || 'null')
 const repo = () => setting('ISSUE_GITHUB_REPO') || ghJson(['repo', 'view', '--json', 'nameWithOwner']).nameWithOwner
 const BASE = setting('PR_BASE') || 'dev'
@@ -300,7 +301,7 @@ async function rerunQa(R, i, env) {
 // rerun + verdict. A verdict is a `verified` or `needs-fix` label (or a closed issue). No verdict after the first agent: one shorter second try on the same results.
 async function verifyIssue(R, i, env) {
   let dir = ''
-  if (num('VERIFY_RERUN', 1)) { dir = await step('rerun', async () => rerunQa(R, i, env) || false); if (!dir) { cl.st.verdict = { s: 'skip', note: 'no ui-qa results to judge' }; return false } } else cl.st.rerun = { s: 'skip', note: 'VERIFY_RERUN=0' }
+  if (num('VERIFY_RERUN', 1)) { dir = await step('rerun', async () => rerunQa(R, i, env) || false); if (!dir) { const hard = cl.st.rerun.s === 'fail'; cl.st.verdict = { s: 'skip', note: hard ? 'the ui-qa re-run did not finish (error above); the issue stays ready-for-test, run qaverify again' : 'no ui-qa results to judge' }; if (hard) say(`#${i.number}: the re-run failed, not a verdict on the fix. It stays ready-for-test: run qaverify again.`); return false } } else cl.st.rerun = { s: 'skip', note: 'VERIFY_RERUN=0' }
   const url = issueUrl(R, i.number), rel = dir.replace(ROOT + '/', '')
   const pf = profileOf(R, i.number), local = pf && isLocalUrl(pf.base)
   const base = `Use the pct102-qa-verify skill on ${url} --env ${pf ? pf.base : env}${local ? '' : ' --close'}. This is an unattended run: never ask questions; if the fix is not live or you cannot decide, comment why and leave the issue open.${pf ? ` The ui-qa runs were logged in as the "${pf.name}" test role.` : ''}${local ? ' This environment is the project\'s own local server, not a Vercel deploy: the script already proved the merged commit is in it, so skip the deploy check; do NOT close the issue (the script closes it after a verified label).' : ''}`

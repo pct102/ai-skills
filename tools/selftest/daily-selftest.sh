@@ -21,6 +21,7 @@ mkdir -p "$T/bin" "$T/fx"; : > "$T/global.env"
 cat > "$T/bin/gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_LOG"; fx="$GH_FX"
+[ -f "$fx/flaky" ] && rm "$fx/flaky" && { echo "HTTP 503: No server is currently available" >&2; exit 1; }
 case "$1 $2" in
   "repo view") echo '{"nameWithOwner":"o/r"}' ;;
   "issue list") lbl=""; for ((i=1;i<=$#;i++)); do [ "${!i}" = "--label" ] && j=$((i+1)) && lbl="${!j}"; done; cat "$fx/issues-$lbl.json" ;;
@@ -139,6 +140,8 @@ echo "\$1" >> "$T/agent.log"
 AG
 : > "$T/agent.log"; node "$SD" review >/dev/null 2>&1
 check "review: one agent, for the hand-filed issue only" "1" "$(grep -c 'pct102-qa-review skill on https://github.com/o/r/issues/7' "$T/agent.log")"
+touch "$GH_FX/flaky"; : > "$T/agent.log"; node "$SD" review >/dev/null 2>&1
+check "gh: one HTTP 503 is retried, the work still happens" "1" "$(grep -c 'pct102-qa-review skill on https://github.com/o/r/issues/7' "$T/agent.log")"
 check "review: ui-qa and already reviewed issues are left alone" "1" "$(wc -l < "$T/agent.log" | tr -d ' ')"
 
 # settings
