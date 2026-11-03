@@ -41,7 +41,7 @@ const reachable = (u) => run('curl', ['-s', '-o', '/dev/null', '-m', '8', u]).st
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const day = new Date().toLocaleDateString('sv') // yyyy-mm-dd, local
 const dailyDir = join(ROOT, '.sdlc', 'daily'); mkdirSync(dailyDir, { recursive: true })
-for (const d of ['daily', 'qa-check', 'qa-verify', 'wt']) { // generated output: keep it out of the project's git status
+for (const d of ['daily', 'qa-check', 'qa-verify', 'qa-review', 'wt', 'features/daily']) { // generated output: keep it out of the project's git status
   mkdirSync(join(ROOT, '.sdlc', d), { recursive: true }); writeFileSync(join(ROOT, '.sdlc', d, '.gitignore'), '*\n')
 }
 const lines = [], cards = []
