@@ -24,6 +24,7 @@ A person files an issue fast: a pasted bug report, a screenshot, a sentence. Bef
 3. **Reproduce.** Open the page with ui-qa (`--max-pages 1 --depth 0`) and, for what the report names, check it yourself: the element, its computed values, the state. Take your own screenshots; box the elements with `ui-qa.mjs <url> --mark '<json>' --mark-out <png>` (red = wrong). Match the report to what you see: confirmed, partly, or not reproducible. Report only what you saw.
 4. **Decide.**
    - **Reproduced** → step 5.
+   - **Improvement or performance request** (a number to reach, "improve", "optimize", "investigate", "too slow"): this is not a defect to reproduce, so do not send it to `needs-info` for that reason. Follow **Improvement track** below instead.
    - **Not reproducible / too vague / a feature request / needs a product or design decision** → comment exactly what you tried and what is missing or undecided, add label `needs-info` (or `needs-human` for a decision), do **not** add `auto-fix`. Stop.
 5. **Complete the issue.** Keep the person's original text untouched, append after a divider (edit the body with `gh issue edit <n> --body-file`, original first):
 
@@ -60,3 +61,32 @@ Evidence goes to `.sdlc/qa-review/issue-<n>/` (create it with a `.gitignore` con
 ## Boundaries
 
 Edit only this issue's title, body (append only), labels and comments. Do not edit the app, its tests or config. Never create or change a file under `${AI_SKILLS_HOME}`; report a tool error instead. Do not mark `auto-fix` on something you did not reproduce. Do not close the issue.
+
+## Improvement track (performance and small enhancements)
+
+For an issue that asks for something better, not for a bug fixed (for example "the Math page takes 8 s, it should take 2 s"):
+
+1. **Baseline, measured.** For a speed request run `node ${AI_SKILLS_HOME}/tools/ui-qa.mjs <url> --perf --runs 3 [--auth <file>] [--allow-remote]` (same URL and login rules as step 2). It prints one JSON line with the median `ttfb`, `download`, `load`, `bytes`, `requests` and the 3 slowest requests. Quote the numbers. `ttfb` small but `download` large means the server keeps streaming the page: the slow part is server rendering, not the network. For other enhancements, record the current behaviour in words and screenshots.
+2. **Investigate (read only).** Read the code behind the page (the route's `page.tsx`/`layout.tsx`, its data calls, big assets). List the likely causes ranked by evidence, each with `file:line`. Never edit the app.
+3. **Acceptance criteria, measurable.** One to three lines a script can check, with the same command and conditions as the baseline, e.g. `/vi/math --perf --runs 3: median load <= 2000 ms`. Use the number the person gave; if they gave none, propose one and mark it "proposed".
+4. **Plan.** Numbered steps, smallest first, each with the files it would touch. Add a final step "re-measure with the same command and post before/after".
+5. **Append to the issue** (original text first, then a divider) in this shape, and label by size:
+
+   ```
+   ---
+   ## QA review (<date>) · improvement
+   **Type:** performance | enhancement
+   **Baseline:** <the --perf numbers, or the current behaviour>
+   **Likely causes:** 1. ... (`file:line`) 2. ...
+   ### Acceptance criteria
+   - ...
+   ### Plan
+   1. ...
+   ```
+
+   - Contained in a few files, the criteria are clear → labels `qa-reviewed`, `auto-fix`, `enhancement` (or `performance`), plus `priority:*`.
+   - Needs a choice (cache or not, a new service, a layout redesign, hosting or database region) → label `needs-human`, not `auto-fix`, and list 2-3 options with the trade-off of each and your recommendation, so the person only has to pick.
+   - A large new feature → label `needs-human` and say it belongs in `feature-autopilot`.
+
+Performance on a deployed preview varies (cold start, region): always use the median of runs, and say so in the criteria.
+

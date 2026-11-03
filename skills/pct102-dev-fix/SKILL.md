@@ -5,6 +5,9 @@ description: Fixes one small, clear GitHub issue straight from its URL, cheaply,
 
 # Dev Fix
 
+
+> **Improvement issues** (labels `performance` / `enhancement`, with Baseline, Acceptance criteria and Plan from `pct102-qa-review`): follow the Plan, run the measurement before and after (speed: `ui-qa.mjs <url> --perf --runs 3`), post both numbers, and set `ready-for-test` only when the criteria are met; otherwise comment the measurements and why, and set `needs-human`.
+
 ## Purpose
 
 Take one issue URL to "fixed, with proof, waiting for QA". It is the cheap lane: no spec, plan, subagents or autopilot loop. Verification of the fix is **not** done here; `pct102-qa-verify` does that independently.

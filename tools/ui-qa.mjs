@@ -369,6 +369,25 @@ if (has('login')) {
   console.log(`saved ${resolve(save)} (mode 600). Do not commit it.`); process.exit(0)
 }
 
+// ui-qa.mjs <url> --perf [--runs 3] [--auth state.json] [--allow-remote]: how long one page takes, no crawl. Each run is a fresh browser context (cold cache, saved login only).
+// Prints one JSON line with the median of: ttfb (waiting for the server), download (response body), domContentLoaded, load, bytes (transferred), requests, slowest (3 slowest requests). Exit 0.
+if (has('perf')) {
+  const runs = Math.max(1, +flag('runs', 3)), b = await chromium.launch({ headless: true }), got = []
+  for (let n = 0; n < runs; n++) {
+    const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, storageState: flag('auth', undefined) }), page = await ctx.newPage(), reqs = []
+    page.on('requestfinished', async (r) => { try { const t = r.timing(), sz = await r.sizes(); reqs.push({ url: short(r.url()), ms: Math.round(t.responseEnd), bytes: sz.responseBodySize + sz.responseHeadersSize }) } catch {} })
+    await page.goto(argv[0], { waitUntil: 'load', timeout: 60000 }).catch(() => {}); await page.waitForTimeout(500)
+    if (flag('auth', '') && /\/(log.?in|sign.?in)\b/i.test(new URL(page.url()).pathname) && !/log.?in|sign.?in/i.test(argv[0])) { await b.close(); die(2, 'the saved session was sent to the login page: it expired or does not match this server') }
+    const nav = await page.evaluate(() => { const e = performance.getEntriesByType('navigation')[0]; return e && { ttfb: e.responseStart, download: e.responseEnd - e.responseStart, domContentLoaded: e.domContentLoadedEventEnd, load: e.loadEventEnd } }).catch(() => null)
+    if (nav) got.push({ ...Object.fromEntries(Object.entries(nav).map(([k, v]) => [k, Math.round(v)])), bytes: reqs.reduce((x, r) => x + r.bytes, 0), requests: reqs.length, slowest: reqs.sort((x, y) => y.ms - x.ms).slice(0, 3) })
+    await ctx.close()
+  }
+  await b.close(); if (!got.length) die(1, 'no timing could be read (page did not load)')
+  const med = (k) => [...got].map((g) => g[k]).sort((x, y) => x - y)[Math.floor(got.length / 2)]
+  console.log(JSON.stringify({ url: argv[0], runs: got.length, ttfb: med('ttfb'), download: med('download'), domContentLoaded: med('domContentLoaded'), load: med('load'), bytes: med('bytes'), requests: med('requests'), slowest: got[0].slowest, unit: 'ms/bytes', all_loads: got.map((g) => g.load) }))
+  process.exit(0)
+}
+
 // ui-qa.mjs <url> --mark '[{"sel":"…","color":"green","label":"FIXED"}]' --mark-out <png> [--scheme dark] [--auth state.json] [--out <dir>]: one marked screenshot, no crawl
 if (has('mark')) {
   const mw = +flag('width', 0), b = await chromium.launch({ headless: true }), c = await open(b, mw ? { n: 'w' + mw, w: mw, h: 900 } : VIEWPORTS[3], flag('scheme', 'light'))
