@@ -413,12 +413,13 @@ async function verify() {
   say(`verify queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur((est('rerun') + est('verdict')) * todo.length)}`)
   for (const i of todo) {
     // cheap pre-checks before any tokens are spent; qa-verify repeats them on its own
-    if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
+    const mp = prFor(R, i.number, 'merged') // no PR at all (not even an open one) = the fix agent found it already fixed on BASE: verify against BASE as it is
+    if (!mp && prFor(R, i.number, 'open')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
     const pf = profileOf(R, i.number)
     if (pf && isLocalUrl(pf.base)) { // a local server: the merged commit must be in this checkout (git pull; the dev server reloads) and the server must answer
       const bad = syncLocal(); if (bad) { say(`#${i.number}: ${bad}, skipped`); card(R, i.number, { note: `skipped: ${bad}` }); continue }
-      const sha = ghJson(['pr', 'view', String(prFor(R, i.number, 'merged').number), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid; run('git', ['fetch', 'origin', BASE])
-      const why = !sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
+      const sha = mp && ghJson(['pr', 'view', String(mp.number), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid; run('git', ['fetch', 'origin', BASE])
+      const why = mp && !sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
       if (why) { say(`#${i.number}: ${why}, skipped`); card(R, i.number, { note: `skipped: ${why}` }); continue }
     } else if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
     begin(i.number, ['rerun', 'verdict']); say(`#${i.number} ${i.title}`)

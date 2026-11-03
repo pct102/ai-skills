@@ -118,10 +118,14 @@ echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN"}' > "$GH_FX/issueview
 
 # qa stage: nothing runs until the fix PR is merged and dev is deployed
 echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"
-echo '[]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
+echo '[]' > "$GH_FX/pr-merged.json"; echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-open.json"; : > "$T/agent.log"
 node "$SD" verify >/dev/null 2>&1;                                  check "qa: fix not merged -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
 echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-merged.json"
+echo '[]' > "$GH_FX/pr-open.json"
 DEPLOY=pending node "$SD" verify >/dev/null 2>&1;                   check "qa: dev not deployed -> no agent run" "0" "$(wc -l < "$T/agent.log" | tr -d ' ')"
+echo '[]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
+node "$SD" verify >/dev/null 2>&1;                                  check "qa: no PR at all (agent found it already fixed on dev) -> verified against dev" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
+echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
 node "$SD" verify >/dev/null 2>&1;                                  check "qa: merged and deployed -> one agent run with --env and --close" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
 
 check "fix wrote a report file naming the issue" "yes" "$(cat .sdlc/daily/fix-*.md 2>/dev/null | grep -q "#7" && echo yes)"
