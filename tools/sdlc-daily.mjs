@@ -332,7 +332,7 @@ async function fixOne(R, i, maxTry, env) {
   begin(i.number, env ? ['reuse', 'fix', 'gate', 'deploy', 'rerun', 'verdict'] : ['reuse', 'fix', 'gate'])
   say(`#${i.number} ${i.title}`)
   run('git', ['fetch', 'origin', BASE])
-  let pr = null, merged = false, outcome = ''
+  let pr = null, merged = false, already = false, handed = '', outcome = ''
   const finish = () => { const rows = summary(); card(R, i.number, { note: outcome }); cards[cards.length - 1] += `\n\`\`\`\n${rows.join('\n')}\n\`\`\`\n` }
   // Work already on GitHub (an earlier run timed out after pushing, or a person fixed the CI): reuse it, don't pay an agent to redo it.
   await step('reuse', async () => {
@@ -363,20 +363,23 @@ async function fixOne(R, i, maxTry, env) {
       const r = await agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.${(() => { const pf = profileOf(R, i.number); return pf ? ` The problem was found logged in as the test role "${pf.name}" on ${pf.base}: run ui-qa for its pages with --auth ${pf.auth} (never print or copy that file). Start the app from your worktree on a free port; the saved login works on any localhost port. The issue was found on a local server that may have run older code than ${BASE}: first re-check with ui-qa on your worktree (it is ${BASE}); if every listed problem is already gone, comment \"already fixed on ${BASE}\" with the evidence, add ready-for-test, open no PR, and stop. Do not spend more than 20 minutes: if you cannot find the cause by then, comment what you tried and add needs-human.` : '' })()}${i.labels.includes('needs-fix') ? ` An earlier fix for this issue was merged and QA rejected it: read the latest 'Verdict: FAIL' comment and every comment after it, fix exactly what they say (the old change stays in dev; add to it), and push a NEW branch named fix/issue-${i.number}-v${tries + 1}-<slug>, never the old branch.` : ''}`, `dev-${i.number}`, `#${i.number}`, { lane: `i${i.number}fx${tries + 1}`, what: `fix agent (attempt ${tries + 1}/${maxTry})` })
       killIn(wt); run('git', ['worktree', 'remove', '--force', wt])
       const now = issues(R, 'auto-fix').find((x) => x.number === i.number); pr = prFor(R, i.number, 'open')
-      cl.st.fix.note = `model ${r.model || '?'}, ${now?.labels.includes('ready-for-test') && pr ? 'PR #' + pr.number : now?.labels.includes('needs-human') ? 'handed to a person' : 'no ready-for-test result, stays queued'}`
-      return !!(now?.labels.includes('ready-for-test') && pr)
+      const L = now?.labels || []; already = L.includes('ready-for-test') && !pr // the agent found nothing left to fix on BASE: no PR, the next step is to verify, not to merge
+      if (L.includes('needs-human')) { const c = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'comments'])?.comments?.at(-1)?.body || ''; handed = c.replace(/[#*`]/g, '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 2).join(' ').slice(0, 300) || 'no reason given' }
+      cl.st.fix.note = `model ${r.model || '?'}, ${pr && L.includes('ready-for-test') ? 'PR #' + pr.number : already ? 'already fixed on ' + BASE + ', no code change' : handed ? 'blocked: ' + handed : 'no result (timeout or no label), stays queued'}`
+      return L.includes('ready-for-test') && (!!pr || already)
     })
-    if (!ready) { outcome = 'not fixed in this run'; for (const k of cl.keys.slice(2)) cl.st[k] = { s: 'skip', note: 'no fix' }; return finish() }
+    if (!ready) { outcome = handed ? `NEEDS A DECISION: ${handed}` : 'not fixed in this run (agent gave no result), stays queued'; if (handed) say(`#${i.number}: the agent is blocked and needs a person or a design decision: ${handed}`); for (const k of cl.keys.slice(2)) cl.st[k] = { s: 'skip', note: 'no fix' }; return finish() }
   }
-  await step('gate', async () => { merged = await merge(R, pr.number, i.number); cl.st.gate.note = merged ? `PR #${pr.number} merged into ${BASE}` : 'not merged, see the log'; return merged })
-  outcome = `PR #${pr.number} ${merged ? 'merged into ' + BASE : 'NOT merged (see the log above)'}`
+  if (already) { merged = true; cl.st.gate = { s: 'skip', note: `already fixed on ${BASE}, no PR to merge` } }
+  else await step('gate', async () => { merged = await merge(R, pr.number, i.number); cl.st.gate.note = merged ? `PR #${pr.number} merged into ${BASE}` : 'not merged, see the log'; return merged })
+  outcome = already ? `already fixed on ${BASE}, sent to verify` : `PR #${pr.number} ${merged ? 'merged into ' + BASE : 'NOT merged (see the log above)'}`
   if (!merged || !env) { for (const k of cl.keys.slice(3)) cl.st[k] = { s: 'skip', note: merged ? 'no verify (--no-verify)' : 'not merged' }; return finish() }
   const pf = profileOf(R, i.number), loc = pf && isLocalUrl(pf.base) // a local-role issue is verified on the local server: pull the merged BASE into this checkout instead of waiting for a deploy
   if (loc) {
     const ok = await step('deploy', async () => { const b = syncLocal() || (!reachable(pf.base) ? `${pf.base} is not running` : ''); cl.st.deploy.note = b || `local checkout updated to ${BASE}`; return !b })
     if (!ok) { outcome += '; not verified here (local checkout or server not ready), qaverify will do it'; for (const k of ['rerun', 'verdict']) cl.st[k] = { s: 'skip', note: 'local not ready' }; return finish() }
   } else {
-  const st = await step('deploy', async () => { const d = await deployed(R, pr.number); cl.st.deploy.note = d; return d === 'success' })
+  const st = await step('deploy', async () => { const d = await deployed(R, pr?.number); cl.st.deploy.note = d; return d === 'success' })
   if (!st) { errors++; say(`#${i.number}: ${BASE} deploy did not succeed; stopping so no further fix is stacked on it. Fix the deploy, then run fix/verify again.`); outcome += `; stopped: ${BASE} deploy not successful`; for (const k of ['rerun', 'verdict']) cl.st[k] = { s: 'skip', note: 'deploy failed' }; finish(); return 'stop' }
   }
   sleep(num('DEPLOY_SETTLE_SEC', 20) * 1000) // the alias / the local dev server needs a moment to move to the new code
