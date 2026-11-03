@@ -71,7 +71,7 @@ const target = argv[0] && !argv[0].startsWith('--') ? argv[0] : die(3, 'usage: u
 let root; try { root = new URL(target) } catch { die(3, `not a URL: ${target}`) }
 if (!/^https?:$/.test(root.protocol)) die(3, 'only http(s) URLs')
 const localHost = /^(localhost|127\.|\[?::1\]?$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.(local|localhost)$/.test(root.hostname)
-if (!localHost && !has('allow-remote')) die(3, `${root.hostname} is not a local/private host. ui-qa clicks everything, so point it at localhost or staging (override: --allow-remote)`)
+if (!localHost && !has('allow-remote') && !has('login')) die(3, `${root.hostname} is not a local/private host. ui-qa clicks everything, so point it at localhost or staging (override: --allow-remote)`)
 const safe = !has('allow-destructive')
 const DENY = 'delete|remove|destroy|erase|reset|clear|pay|purchase|buy|checkout|order|subscribe|sign.?out|log.?out|unsubscribe|deactivate|cancel|submit|send|publish|xoá|xóa|thanh toán|đăng xuất|mua'
 
@@ -354,10 +354,16 @@ if (has('login')) {
   const { spawn } = await import('node:child_process'), { homedir } = await import('node:os'), { chmodSync } = await import('node:fs'), save = flag('login', ''), port = 9223
   const bin = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((x) => existsSync(x)) || die(1, 'Google Chrome not found')
   if (!save) die(3, 'usage: ui-qa.mjs <url> --login <state.json>')
-  const ch = spawn(bin, [`--remote-debugging-port=${port}`, `--user-data-dir=${join(homedir(), '.config', 'ui-qa', 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check', argv[0]], { stdio: 'ignore', detached: true }); ch.unref()
-  console.log(`A Chrome window opened on ${argv[0]}. Sign in there, wait until you see the logged-in app, then press Enter here.`)
-  await new Promise((r) => process.stdin.once('data', r))
-  const b = await chromium.connectOverCDP(`http://127.0.0.1:${port}`).catch((e) => die(1, `cannot reach that Chrome: ${e.message.split('\n')[0]}`))
+  const ch = spawn(bin, [`--remote-debugging-port=${port}`, `--user-data-dir=${join(homedir(), '.config', 'ui-qa', 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check', ...(has('refresh') ? ['--headless=new'] : []), argv[0]], { stdio: 'ignore', detached: true }); ch.unref()
+  if (!has('refresh')) { console.log(`A Chrome window opened on ${argv[0]}. Sign in there, wait until you see the logged-in app, then press Enter here.`); await new Promise((r) => process.stdin.once('data', r)) }
+  // --refresh: no person needed. The dedicated Chrome profile still holds the earlier sign-in, so open the app headless, and if it is not sent to a login page, save the session again.
+  let b; for (let n = 0; n < (has('refresh') ? 30 : 1) && !b; n++) { b = await chromium.connectOverCDP(`http://127.0.0.1:${port}`).catch(() => null); if (!b) await new Promise((r) => setTimeout(r, 1000)) }
+  if (!b) die(1, 'cannot reach that Chrome')
+  if (has('refresh')) {
+    const pg = await b.contexts()[0].newPage(); await pg.goto(argv[0], { timeout: 30000 }).catch(() => {}); await pg.waitForTimeout(3000)
+    const out = /\/(login|signin|sign-in)\b|accounts\.google\./.test(pg.url()); await pg.close()
+    if (out) { await b.close().catch(() => {}); try { process.kill(-ch.pid) } catch {}; die(2, 'the saved sign-in expired: run this command again without --refresh and sign in once') }
+  }
   mkdirSync(dirname(resolve(save)), { recursive: true }); await b.contexts()[0].storageState({ path: resolve(save) }); chmodSync(resolve(save), 0o600)
   await b.close().catch(() => {}); try { process.kill(-ch.pid) } catch { try { process.kill(ch.pid) } catch {} }
   console.log(`saved ${resolve(save)} (mode 600). Do not commit it.`); process.exit(0)

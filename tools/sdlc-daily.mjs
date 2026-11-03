@@ -13,7 +13,7 @@
 // links and the image count of every issue. Settings: see autopilot.env.example.
 // Exit: 0 done | 1 a stage had errors | 3 usage or missing setting
 import { spawn, spawnSync } from 'node:child_process'
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -30,6 +30,13 @@ const list = (k, d = '') => (setting(k) || d).split(/[\s,]+/).filter(Boolean)
 // _URL (default QA_LOCAL_URL), _PATHS (pages for that role). A local URL runs the project's own server with seeded test users; a remote one is the deployed dev.
 const profile = (name) => { const K = `QA_PROFILE_${name.toUpperCase().replace(/\W/g, '_')}_`, a = setting(K + 'AUTH'); return a ? { name, auth: a.startsWith('~') ? join(homedir(), a.slice(1)) : resolve(ROOT, a), base: (setting(K + 'URL') || setting('QA_LOCAL_URL')).replace(/\/+$/, ''), paths: list(K + 'PATHS', '/vi/home') } : null }
 const isLocalUrl = (u) => { try { return /^(localhost|127\.|\[?::1\]?$)/.test(new URL(u).hostname) } catch { return false } }
+// A deployed profile's login is renewed by itself when the file is missing or older than LOGIN_MAX_AGE_DAYS: the dedicated Chrome profile (made once with ui-qa --login) still holds the sign-in, so no person is needed. Returns '' or why not.
+const freshLogin = (pf) => {
+  if (isLocalUrl(pf.base) || !pf.base) return ''
+  const old = !existsSync(pf.auth) || Date.now() - statSync(pf.auth).mtimeMs > num('LOGIN_MAX_AGE_DAYS', 2) * 86400000; if (!old) return ''
+  const r = run('node', [setting('UI_QA_BIN') || join(HERE, 'ui-qa.mjs'), pf.base + (pf.paths?.[0] || '/'), '--login', pf.auth, '--refresh', '--out', join(ROOT, '.sdlc', 'qa-verify', 'login')], { timeout: 120000 })
+  return r.status === 0 ? '' : (r.stderr || r.stdout || '').trim().split('\n').pop().slice(0, 200) || 'refresh failed'
+}
 const reachable = (u) => run('curl', ['-s', '-o', '/dev/null', '-m', '8', u]).status === 0
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const day = new Date().toLocaleDateString('sv') // yyyy-mm-dd, local
@@ -216,6 +223,7 @@ function check() {
   for (const name of list('QA_PROFILES')) { // roles tested logged in; each one that cannot run says why instead of silently testing the login page
     const pf = profile(name)
     if (!pf?.base) { say(`profile ${name}: QA_PROFILE_${name.toUpperCase()}_AUTH or a URL is missing, skipped`); continue }
+    const lg = freshLogin(pf); if (lg && !existsSync(pf.auth)) say(`profile ${name}: could not renew the login: ${lg}`)
     if (!existsSync(pf.auth)) { say(`profile ${name}: no saved login at ${pf.auth}, skipped (create it, see autopilot.env.example)`); continue }
     if (!reachable(pf.base)) { say(`profile ${name}: ${pf.base} is not running, skipped (start the app, for example npm run dev)`); continue }
     const bad = isLocalUrl(pf.base) && syncLocal(); if (bad) { say(`profile ${name}: ${bad}, skipped`); continue }
@@ -254,7 +262,8 @@ const verdictOf = (R, n) => { const a = ghJson(['issue', 'view', String(n), '--r
 // The ui-qa runs of the verification are done HERE, not by the agent: one crawl takes minutes and an agent's shell gives up after two.
 // A few pages at a time (VERIFY_PARALLEL), at most VERIFY_MAX_PAGES of the issue's pages (the rest is said to be not covered).
 async function rerunQa(R, i, env) {
-  const pf = profileOf(R, i.number), au = pf ? ['--auth', pf.auth] : [], dir = join(ROOT, '.sdlc', 'qa-verify', `issue-${i.number}`), origin = new URL(pf ? pf.base : env).origin
+  const pf = profileOf(R, i.number); if (pf) freshLogin(pf)
+  const au = pf ? ['--auth', pf.auth] : [], dir = join(ROOT, '.sdlc', 'qa-verify', `issue-${i.number}`), origin = new URL(pf ? pf.base : env).origin
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true })
   const all = pagesOf(ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body), cap = num('VERIFY_MAX_PAGES', 8), pages = (all.length ? all : [new URL(env).pathname]).slice(0, cap)
   const jobs = pages.map((pg) => [`run-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp(), ...au]])
@@ -412,6 +421,7 @@ async function review() {
   const R = repo(), skipL = ['ui-qa', 'qa-reviewed', 'needs-info', 'needs-human', 'auto-fix', 'duplicate', 'wontfix'], cap = num('MAX_REVIEW_ISSUES', 5)
   const todo = ghJson(['issue', 'list', '--repo', R, '--state', 'open', '--json', 'number,title,labels', '--limit', '100']).filter((i) => !i.labels.some((l) => skipL.includes(l.name))).map((i) => ({ ...i, labels: i.labels.map((l) => l.name) })).sort((a, b) => a.number - b.number).slice(0, cap)
   if (!todo.length) return say('no hand-filed issues waiting for a QA review')
+  for (const name of list('QA_PROFILES')) { const pf = profile(name); if (pf?.base && !isLocalUrl(pf.base)) { const lg = freshLogin(pf); if (lg) say(`profile ${name}: could not renew the login: ${lg}`) } }
   say(`review queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur(est('review') * todo.length)}`)
   for (const i of todo) {
     begin(i.number, ['review']); say(`#${i.number} ${i.title}`)
