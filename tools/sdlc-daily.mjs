@@ -75,6 +75,15 @@ const ghOut = (a) => { const r = run('gh', a); if (r.status !== 0) throw new Err
 const ghJson = (a) => JSON.parse(ghOut(a) || 'null')
 const repo = () => setting('ISSUE_GITHUB_REPO') || ghJson(['repo', 'view', '--json', 'nameWithOwner']).nameWithOwner
 const BASE = setting('PR_BASE') || 'dev'
+// A local server tests the code in THIS checkout, so before any local test: be on BASE with its latest commits. Refuses (returns why) if tracked files are modified, never discards work.
+const syncLocal = () => {
+  if (run('git', ['status', '--porcelain', '--untracked-files=no']).stdout.trim()) return `the checkout has uncommitted changes, so it was not switched to ${BASE} (commit or stash them)`
+  const f = run('git', ['fetch', 'origin', BASE]); if (f.status) return `git fetch origin ${BASE} failed`
+  const cur = run('git', ['branch', '--show-current']).stdout.trim()
+  if (cur !== BASE && run('git', ['switch', BASE]).status) return `could not switch to ${BASE}`
+  if (run('git', ['merge', '--ff-only', `origin/${BASE}`]).status) return `${BASE} cannot fast-forward to origin/${BASE} (local commits?)`
+  say(`local checkout: on ${BASE} at ${run('git', ['rev-parse', '--short', 'HEAD']).stdout.trim()}${cur !== BASE ? ` (was ${cur})` : ''}`); return ''
+}
 const PROTECTED = list('PROTECTED_BRANCHES', 'main master')
 const issueUrl = (R, n) => `https://github.com/${R}/issues/${n}`
 const tag = (R, n, add, remove = '') => run('node', [join(HERE, 'sdlc-issue.mjs'), 'label', '--url', issueUrl(R, n), ...(add ? ['--add', add] : []), ...(remove ? ['--remove', remove] : [])])
@@ -207,6 +216,7 @@ function check() {
     if (!pf?.base) { say(`profile ${name}: QA_PROFILE_${name.toUpperCase()}_AUTH or a URL is missing, skipped`); continue }
     if (!existsSync(pf.auth)) { say(`profile ${name}: no saved login at ${pf.auth}, skipped (create it, see autopilot.env.example)`); continue }
     if (!reachable(pf.base)) { say(`profile ${name}: ${pf.base} is not running, skipped (start the app, for example npm run dev)`); continue }
+    const bad = isLocalUrl(pf.base) && syncLocal(); if (bad) { say(`profile ${name}: ${bad}, skipped`); continue }
     const [first, ...rest] = pf.paths
     jobs.push([pf.base + first, '--depth', '0', '--max-pages', String(pf.paths.length), ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
   }
@@ -350,7 +360,7 @@ async function fixOne(R, i, maxTry, env) {
     const ready = await step('fix', async () => {
       if (run('git', ['worktree', 'add', '--detach', wt, `origin/${BASE}`]).status) { say(`#${i.number}: cannot create a worktree from origin/${BASE}`); return false }
       fillWt(wt)
-      const r = await agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.${(() => { const pf = profileOf(R, i.number); return pf ? ` The problem was found logged in as the test role "${pf.name}" on ${pf.base}: run ui-qa for its pages with --auth ${pf.auth} (never print or copy that file). Start the app from your worktree on a free port; the saved login works on any localhost port.` : '' })()}${i.labels.includes('needs-fix') ? ` An earlier fix for this issue was merged and QA rejected it: read the latest 'Verdict: FAIL' comment and every comment after it, fix exactly what they say (the old change stays in dev; add to it), and push a NEW branch named fix/issue-${i.number}-v${tries + 1}-<slug>, never the old branch.` : ''}`, `dev-${i.number}`, `#${i.number}`, { lane: `i${i.number}fx${tries + 1}`, what: `fix agent (attempt ${tries + 1}/${maxTry})` })
+      const r = await agent(wt, `Use the pct102-dev-fix skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you are blocked, comment why on the issue and add the needs-human label. Push the fix branch and open the PR into ${BASE} as the skill says. Do not merge.${(() => { const pf = profileOf(R, i.number); return pf ? ` The problem was found logged in as the test role "${pf.name}" on ${pf.base}: run ui-qa for its pages with --auth ${pf.auth} (never print or copy that file). Start the app from your worktree on a free port; the saved login works on any localhost port. The issue was found on a local server that may have run older code than ${BASE}: first re-check with ui-qa on your worktree (it is ${BASE}); if every listed problem is already gone, comment \"already fixed on ${BASE}\" with the evidence, add ready-for-test, open no PR, and stop. Do not spend more than 20 minutes: if you cannot find the cause by then, comment what you tried and add needs-human.` : '' })()}${i.labels.includes('needs-fix') ? ` An earlier fix for this issue was merged and QA rejected it: read the latest 'Verdict: FAIL' comment and every comment after it, fix exactly what they say (the old change stays in dev; add to it), and push a NEW branch named fix/issue-${i.number}-v${tries + 1}-<slug>, never the old branch.` : ''}`, `dev-${i.number}`, `#${i.number}`, { lane: `i${i.number}fx${tries + 1}`, what: `fix agent (attempt ${tries + 1}/${maxTry})` })
       killIn(wt); run('git', ['worktree', 'remove', '--force', wt])
       const now = issues(R, 'auto-fix').find((x) => x.number === i.number); pr = prFor(R, i.number, 'open')
       cl.st.fix.note = `model ${r.model || '?'}, ${now?.labels.includes('ready-for-test') && pr ? 'PR #' + pr.number : now?.labels.includes('needs-human') ? 'handed to a person' : 'no ready-for-test result, stays queued'}`
@@ -361,9 +371,15 @@ async function fixOne(R, i, maxTry, env) {
   await step('gate', async () => { merged = await merge(R, pr.number, i.number); cl.st.gate.note = merged ? `PR #${pr.number} merged into ${BASE}` : 'not merged, see the log'; return merged })
   outcome = `PR #${pr.number} ${merged ? 'merged into ' + BASE : 'NOT merged (see the log above)'}`
   if (!merged || !env) { for (const k of cl.keys.slice(3)) cl.st[k] = { s: 'skip', note: merged ? 'no verify (--no-verify)' : 'not merged' }; return finish() }
+  const pf = profileOf(R, i.number), loc = pf && isLocalUrl(pf.base) // a local-role issue is verified on the local server: pull the merged BASE into this checkout instead of waiting for a deploy
+  if (loc) {
+    const ok = await step('deploy', async () => { const b = syncLocal() || (!reachable(pf.base) ? `${pf.base} is not running` : ''); cl.st.deploy.note = b || `local checkout updated to ${BASE}`; return !b })
+    if (!ok) { outcome += '; not verified here (local checkout or server not ready), qaverify will do it'; for (const k of ['rerun', 'verdict']) cl.st[k] = { s: 'skip', note: 'local not ready' }; return finish() }
+  } else {
   const st = await step('deploy', async () => { const d = await deployed(R, pr.number); cl.st.deploy.note = d; return d === 'success' })
   if (!st) { errors++; say(`#${i.number}: ${BASE} deploy did not succeed; stopping so no further fix is stacked on it. Fix the deploy, then run fix/verify again.`); outcome += `; stopped: ${BASE} deploy not successful`; for (const k of ['rerun', 'verdict']) cl.st[k] = { s: 'skip', note: 'deploy failed' }; finish(); return 'stop' }
-  sleep(num('DEPLOY_SETTLE_SEC', 20) * 1000) // the branch alias needs a moment to move to the new deploy
+  }
+  sleep(num('DEPLOY_SETTLE_SEC', 20) * 1000) // the alias / the local dev server needs a moment to move to the new code
   await verifyIssue(R, i, env)
   finish()
 }
@@ -381,8 +397,7 @@ async function fix() {
   // ponytail: one issue at a time. dev-fix starts the app for before/after evidence, so parallel fixers would fight over ports; add worktree-per-agent parallelism if the queue grows.
   for (const [k, i] of todo.entries()) {
     say(`── issue ${k + 1}/${todo.length} ── ${todo.length - k} left, about ${dur(per * (todo.length - k))}`)
-    const pf = env ? profileOf(R, i.number) : null
-    if (await fixOne(R, i, maxTry, pf && isLocalUrl(pf.base) ? '' : env) === 'stop') break
+    if (await fixOne(R, i, maxTry, env) === 'stop') break
   }
 }
 
@@ -398,6 +413,7 @@ async function verify() {
     if (!prFor(R, i.number, 'merged')) { say(`#${i.number}: fix PR not merged into ${BASE} yet, skipped`); card(R, i.number, { note: 'skipped: fix not merged yet' }); continue }
     const pf = profileOf(R, i.number)
     if (pf && isLocalUrl(pf.base)) { // a local server: the merged commit must be in this checkout (git pull; the dev server reloads) and the server must answer
+      const bad = syncLocal(); if (bad) { say(`#${i.number}: ${bad}, skipped`); card(R, i.number, { note: `skipped: ${bad}` }); continue }
       const sha = ghJson(['pr', 'view', String(prFor(R, i.number, 'merged').number), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid; run('git', ['fetch', 'origin', BASE])
       const why = !sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
       if (why) { say(`#${i.number}: ${why}, skipped`); card(R, i.number, { note: `skipped: ${why}` }); continue }
