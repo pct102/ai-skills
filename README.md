@@ -13,6 +13,7 @@ Personal AI software delivery skills.
 - `pct102-ui-qa`: black-box UI QA from a URL (clicks, dropdowns, scroll, resize, drag, dark mode, responsive, transitions) with GitHub issue drafts
 - `pct102-dev-fix`: fixes one small GitHub issue from its URL, comments before/after evidence, sets `ready-for-test` (no autopilot)
 - `pct102-qa-verify`: independently verifies a `ready-for-test` issue (on the local app or a deployed env URL), sweeps for sibling defects, sets `verified` or `needs-fix`, and closes it with `--close` when the fix is live
+- `pct102-qa-review` (`qareview`): completes an issue a person filed by hand (not from ui-qa): reproduces it, appends steps / expected / actual / affected pages, retitles it `[QA] <Area>: <problem>`, and labels it `qa-reviewed` + `auto-fix` (so `devfix` takes it) or `needs-info` when it cannot be reproduced
 - `pct102-qa-lead-check` / `pct102-dev-lead-fix` / `pct102-qa-lead-verify`: the three stages of the by-hand QA loop (`tools/sdlc-daily.mjs check|fix|verify`): file grouped issues with screenshots from a crawl of the deployed dev URL, fix each with a fresh agent and gate-merge its PR into dev, verify and close on the deployed env. Each stage writes a markdown report
 
 `tools/` is the part that decides whether work actually passed. See **The machine layer**
@@ -98,6 +99,7 @@ skills/
   pct102-frontend-patterns/
   pct102-ui-qa/
   pct102-dev-fix/
+  pct102-qa-review/
   pct102-qa-verify/
   pct102-qa-lead-check/ pct102-dev-lead-fix/ pct102-qa-lead-verify/
   archify/                   ← vendored renderer for diagrams (MIT, pinned; see VENDORED.md)

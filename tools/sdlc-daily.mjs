@@ -2,6 +2,8 @@
 // The QA loop for one project, run by hand like autopilot: each stage works through its queue, then stops and writes a report.
 // Run from the project root (the project's .sdlc/autopilot.env is read).
 //   sdlc-daily.mjs check [--dry-run]   ui-qa over QA_ENV_URL (+ QA_URLS): files NEW issues (labels ui-qa, auto-fix), with screenshots
+//   sdlc-daily.mjs review         open issues a person filed by hand (no ui-qa label): pct102-qa-review reproduces them, adds steps/expected/pages,
+//                                 retitles, labels qa-reviewed + auto-fix (or needs-info), so fix picks them up
 //   sdlc-daily.mjs fix [--no-verify]  open auto-fix issues, oldest first, ONE AT A TIME: pct102-dev-fix (PR into PR_BASE) -> merge gate (an agent
 //                                 resolves conflicts with PR_BASE) -> wait for the dev deploy -> pct102-qa-verify -> next issue
 //   sdlc-daily.mjs verify         each ready-for-test issue whose fix is merged and deployed: an agent runs pct102-qa-verify --close
@@ -43,10 +45,10 @@ let errors = 0
 // ---------- progress: a checklist per issue, timed steps, ETA from earlier runs (timing.json), a heartbeat while an agent works
 const timingFile = join(dailyDir, 'timing.json')
 let timing = {}; try { timing = JSON.parse(readFileSync(timingFile, 'utf8')) } catch {}
-const DEFAULT_SEC = { reuse: 5, fix: 900, gate: 180, deploy: 240, rerun: 480, verdict: 300 }
+const DEFAULT_SEC = { reuse: 5, fix: 900, gate: 180, deploy: 240, rerun: 480, verdict: 300, review: 600 }
 const est = (k) => (timing[k]?.length ? timing[k].reduce((a, b) => a + b, 0) / timing[k].length : DEFAULT_SEC[k])
 const dur = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}h${String(Math.round((s % 3600) / 60)).padStart(2, '0')}` : s >= 60 ? `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, '0')}` : `${Math.round(s)}s`)
-const STEP_NAME = { reuse: 'Look for an existing PR or branch', fix: 'Fix (agent)', gate: 'Merge gate: CI, conflicts, merge', deploy: 'Wait for the dev deploy', rerun: 'Re-run ui-qa on the affected pages and a sweep', verdict: 'Verdict (agent): compare, comment, label' }
+const STEP_NAME = { reuse: 'Look for an existing PR or branch', fix: 'Fix (agent)', gate: 'Merge gate: CI, conflicts, merge', deploy: 'Wait for the dev deploy', rerun: 'Re-run ui-qa on the affected pages and a sweep', review: 'QA review (agent): reproduce, complete, label', verdict: 'Verdict (agent): compare, comment, label' }
 let cl = null // the checklist of the issue being worked on
 const begin = (n, keys) => { cl = { n, keys, st: Object.fromEntries(keys.map((k) => [k, { s: 'todo' }])), t0: Date.now() } }
 const eta = () => cl.keys.filter((k) => ['todo', 'run'].includes(cl.st[k].s)).reduce((a, k) => a + est(k), 0)
@@ -404,6 +406,26 @@ async function fix() {
   }
 }
 
+// Issues a person filed by hand (no ui-qa label): reproduce, complete (steps, expected, pages), retitle, label qa-reviewed + auto-fix so fix picks them up.
+async function review() {
+  agentCmd()
+  const R = repo(), skipL = ['ui-qa', 'qa-reviewed', 'needs-info', 'needs-human', 'auto-fix', 'duplicate', 'wontfix'], cap = num('MAX_REVIEW_ISSUES', 5)
+  const todo = ghJson(['issue', 'list', '--repo', R, '--state', 'open', '--json', 'number,title,labels', '--limit', '100']).filter((i) => !i.labels.some((l) => skipL.includes(l.name))).map((i) => ({ ...i, labels: i.labels.map((l) => l.name) })).sort((a, b) => a.number - b.number).slice(0, cap)
+  if (!todo.length) return say('no hand-filed issues waiting for a QA review')
+  say(`review queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur(est('review') * todo.length)}`)
+  for (const i of todo) {
+    begin(i.number, ['review']); say(`#${i.number} ${i.title}`)
+    await step('review', async () => {
+      const r = await agent(ROOT, `Use the pct102-qa-review skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you cannot decide or test it, comment why and add the needs-info label (or needs-human for a decision).`, `review-${i.number}`, `#${i.number}`, { lane: `i${i.number}rv`, min: num('REVIEW_TIMEOUT_MIN', 20), what: 'review agent' })
+      const L = (issues(R, 'qa-reviewed').concat(issues(R, 'needs-info'), issues(R, 'needs-human')).find((x) => x.number === i.number) || {}).labels || []
+      cl.st.review.note = `model ${r.model || '?'}, ${L.includes('qa-reviewed') ? 'reproduced and completed, handed to devfix' : L.includes('needs-info') ? 'needs more info (see its comment)' : L.includes('needs-human') ? 'needs a decision (see its comment)' : 'no result'}`
+      if (!L.length) { tag(R, i.number, 'needs-human'); note(R, i.number, 'The automatic QA review did not reach a result. A person needs to look at it.'); return false }
+      return true
+    })
+    const rows = summary(); card(R, i.number); cards[cards.length - 1] += `\n\`\`\`\n${rows.join('\n')}\n\`\`\`\n`
+  }
+}
+
 async function verify() {
   agentCmd()
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
@@ -419,7 +441,7 @@ async function verify() {
     if (pf && isLocalUrl(pf.base)) { // a local server: the merged commit must be in this checkout (git pull; the dev server reloads) and the server must answer
       const bad = syncLocal(); if (bad) { say(`#${i.number}: ${bad}, skipped`); card(R, i.number, { note: `skipped: ${bad}` }); continue }
       const sha = mp && ghJson(['pr', 'view', String(mp.number), '--repo', R, '--json', 'mergeCommit'])?.mergeCommit?.oid; run('git', ['fetch', 'origin', BASE])
-      const why = mp && !sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
+      const why = mp && (!sha || run('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status) ? `this checkout does not have the fix yet: git pull origin ${BASE}` : !reachable(pf.base) ? `${pf.base} is not running` : ''
       if (why) { say(`#${i.number}: ${why}, skipped`); card(R, i.number, { note: `skipped: ${why}` }); continue }
     } else if (deploy !== 'success') { say(`#${i.number}: ${BASE} deploy is "${deploy}", skipped`); card(R, i.number, { note: 'skipped: dev not deployed yet' }); continue }
     begin(i.number, ['rerun', 'verdict']); say(`#${i.number} ${i.title}`)
@@ -428,14 +450,14 @@ async function verify() {
   }
 }
 
-if (!['check', 'fix', 'verify', 'merge'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs check | fix | verify | merge <pr>')
+if (!['check', 'fix', 'verify', 'review', 'merge'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs check | review | fix | verify | merge <pr>')
 if (cmd === 'merge') { if (!/^\d+$/.test(arg || '')) die(3, 'merge <pr number>'); process.exit((await merge(repo(), +arg, 0)) ? 0 : 1) }
 
 // one run of the loop per project at a time (a long stage must not overlap the next trigger)
 const lock = join(dailyDir, 'lock'), alive = (p) => { try { process.kill(p, 0); return true } catch { return false } }
 if (existsSync(lock) && alive(+readFileSync(lock, 'utf8'))) die(0, `another stage is running (pid ${readFileSync(lock, 'utf8')}), skipped`)
 writeFileSync(lock, String(process.pid))
-try { await ({ check, fix, verify })[cmd]() } catch (e) { errors++; say(`stopped: ${e.message}`) } finally { rmSync(lock, { force: true }) }
+try { await ({ check, fix, verify, review })[cmd]() } catch (e) { errors++; say(`stopped: ${e.message}`) } finally { rmSync(lock, { force: true }) }
 const report = join(dailyDir, `${cmd}-${day}-${new Date().toTimeString().slice(0, 5).replace(':', '')}.md`)
 writeFileSync(report, [`# ${basename(ROOT)} · ${cmd} · ${day}`, '', errors ? `**${errors} error(s) in this run.**` : 'No errors in this run.', '', '## Log', ...lines, '', '## Issues', ...(cards.length ? cards : ['(none)']), ''].join('\n'))
 console.log(`report: ${report}`)

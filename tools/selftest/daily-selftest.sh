@@ -130,6 +130,17 @@ node "$SD" verify >/dev/null 2>&1;                                  check "qa: m
 
 check "fix wrote a report file naming the issue" "yes" "$(cat .sdlc/daily/fix-*.md 2>/dev/null | grep -q "#7" && echo yes)"
 
+# review stage: only the hand-filed issue (no ui-qa / auto-fix label) gets the QA review agent
+echo '[{"number":7,"title":"contrast bug","labels":[{"name":"bug"}]},{"number":8,"title":"[ui-qa] x","labels":[{"name":"ui-qa"}]},{"number":9,"title":"done","labels":[{"name":"qa-reviewed"}]}]' > "$GH_FX/issues-.json"
+echo '[{"number":7,"title":"contrast bug","labels":[{"name":"qa-reviewed"},{"name":"auto-fix"}]}]' > "$GH_FX/issues-qa-reviewed.json"; echo '[]' > "$GH_FX/issues-needs-info.json"; echo '[]' > "$GH_FX/issues-needs-human.json"
+cat > "$T/agent.sh" <<AG
+#!/bin/sh
+echo "\$1" >> "$T/agent.log"
+AG
+: > "$T/agent.log"; node "$SD" review >/dev/null 2>&1
+check "review: one agent, for the hand-filed issue only" "1" "$(grep -c 'pct102-qa-review skill on https://github.com/o/r/issues/7' "$T/agent.log")"
+check "review: ui-qa and already reviewed issues are left alone" "1" "$(wc -l < "$T/agent.log" | tr -d ' ')"
+
 # settings
 rm .sdlc/autopilot.env
 check "check: missing QA_ENV_URL is a usage error" "3" "$(node "$SD" check >/dev/null 2>&1; echo $?)"
