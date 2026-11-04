@@ -27,12 +27,12 @@ const run = (c, a, o = {}) => spawnSync(c, a, { encoding: 'utf8', cwd: ROOT, ...
 const num = (k, d) => (setting(k) === '' ? d : +setting(k)) // 0 is a real value
 const list = (k, d = '') => (setting(k) || d).split(/[\s,]+/).filter(Boolean)
 // Profiles = roles tested logged in (a saved login file, ui-qa --auth). QA_PROFILES="admin student1 devadmin"; per profile NAME: QA_PROFILE_<NAME>_AUTH (login file),
-// _URL (default QA_LOCAL_URL), _PATHS (pages for that role). A local URL runs the project's own server with seeded test users; a remote one is the deployed dev.
-const profile = (name) => { const K = `QA_PROFILE_${name.toUpperCase().replace(/\W/g, '_')}_`, a = setting(K + 'AUTH'); return a ? { name, auth: a.startsWith('~') ? join(homedir(), a.slice(1)) : resolve(ROOT, a), base: (setting(K + 'URL') || setting('QA_LOCAL_URL')).replace(/\/+$/, ''), paths: list(K + 'PATHS', '/vi/home') } : null }
+// _URL (default QA_LOCAL_URL), _PATHS (pages for that role), _RENEW=0 (a login file made some other way, e.g. a minted test-user session: never renew it from the Google Chrome profile). A local URL runs the project's own server with seeded test users; a remote one is the deployed dev.
+const profile = (name) => { const K = `QA_PROFILE_${name.toUpperCase().replace(/\W/g, '_')}_`, a = setting(K + 'AUTH'); return a ? { name, auth: a.startsWith('~') ? join(homedir(), a.slice(1)) : resolve(ROOT, a), base: (setting(K + 'URL') || setting('QA_LOCAL_URL')).replace(/\/+$/, ''), paths: list(K + 'PATHS', '/vi/home'), renew: setting(K + 'RENEW') !== '0' } : null }
 const isLocalUrl = (u) => { try { return /^(localhost|127\.|\[?::1\]?$)/.test(new URL(u).hostname) } catch { return false } }
 // A deployed profile's login is renewed by itself when the file is missing or older than LOGIN_MAX_AGE_DAYS: the dedicated Chrome profile (made once with ui-qa --login) still holds the sign-in, so no person is needed. Returns '' or why not.
 const freshLogin = (pf) => {
-  if (isLocalUrl(pf.base) || !pf.base) return ''
+  if (isLocalUrl(pf.base) || !pf.base || !pf.renew) return ''
   const old = !existsSync(pf.auth) || Date.now() - statSync(pf.auth).mtimeMs > num('LOGIN_MAX_AGE_DAYS', 2) * 86400000; if (!old) return ''
   const r = run('node', [setting('UI_QA_BIN') || join(HERE, 'ui-qa.mjs'), pf.base + (pf.paths?.[0] || '/'), '--login', pf.auth, '--refresh', '--out', join(ROOT, '.sdlc', 'qa-verify', 'login')], { timeout: 120000 })
   return r.status === 0 ? '' : (r.stderr || r.stdout || '').trim().split('\n').pop().slice(0, 200) || 'refresh failed'
