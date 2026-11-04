@@ -257,7 +257,7 @@ function check() {
 // One issue at a time, oldest first: fix -> merge -> wait for the deploy -> verify -> next. Every fix starts from a dev that already holds the
 // previous one, so the PRs do not collide. Each issue runs as a checklist of timed steps (see step()).
 const pagesOf = (body) => [...((body || '').match(/Affected pages?:?\**\s*(.+)/i)?.[1] || '').matchAll(/`(\/[^`\s]*)`/g)].map((m) => m[1])
-const profileOf = (R, n) => { const m = (ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'body']).body || '').match(/QA profile:\*{0,2}\s*([\w-]+)/); return m ? profile(m[1]) : null }
+const profileOf = (R, n) => { const m = (ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'body']).body || '').match(/QA profile:\*{0,2}\s*([\w-]+)/); const pf = m ? profile(m[1]) : null; if (m && !pf) say(`#${n} the issue names QA profile "${m[1]}" but it is not defined (QA_PROFILE_${m[1].toUpperCase().replace(/\W/g, '_')}_AUTH): verifying WITHOUT a login`); return pf }
 const verdictOf = (R, n) => { const a = ghJson(['issue', 'view', String(n), '--repo', R, '--json', 'state,labels']), l = a.labels.map((x) => x.name); return { state: a.state, labels: l, done: a.state === 'CLOSED' || l.includes('verified') || l.includes('needs-fix') } }
 
 // The ui-qa runs of the verification are done HERE, not by the agent: one crawl takes minutes and an agent's shell gives up after two.
