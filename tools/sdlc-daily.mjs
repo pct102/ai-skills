@@ -229,7 +229,7 @@ function check() {
     if (!reachable(pf.base)) { say(`profile ${name}: ${pf.base} is not running, skipped (start the app, for example npm run dev)`); continue }
     const bad = isLocalUrl(pf.base) && syncLocal(); if (bad) { say(`profile ${name}: ${bad}, skipped`); continue }
     const [first, ...rest] = pf.paths
-    jobs.push([pf.base + first, '--depth', '0', '--max-pages', String(pf.paths.length), ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
+    jobs.push([pf.base + first, '--depth', String(num('QA_PROFILE_DEPTH', 2)), '--max-pages', String(Math.max(pf.paths.length, num('QA_PROFILE_MAX_PAGES', 15))), '--expand-seeds', ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
   }
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
   let filed = 0; const newIssues = []
@@ -275,7 +275,7 @@ async function rerunQa(R, i, env) {
   for (const pg of extra) jobs.push([`impact-${pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'}`, [origin + pg, '--max-pages', '1', '--depth', '0', ...imp(), ...au]])
   cl.impact = { files: im.files, all: im.all, routes: im.routes, tested: extra }
   if (im.files.length) { say(`#${i.number}   impact: PR #${mp.number} changed ${im.files.length} file(s) reaching ${im.routes.length} page(s)${im.all ? ' (global styles changed: every page)' : ''}; also testing ${extra.length}: ${extra.join(' ') || 'none'}`); note(R, i.number, `Impact scope of PR #${mp.number}: changed ${im.files.map((f) => '`' + f + '`').join(', ')}. These files reach ${im.routes.length} page(s)${im.all ? ' and global styles (every page)' : ''}: ${im.routes.slice(0, 12).map((r) => '`' + r + '`').join(', ')}${im.routes.length > 12 ? ', ...' : ''}. QA re-tests: ${[...pages, ...extra].map((r) => '`' + r + '`').join(', ')}.`) }
-  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [pf ? origin + pf.paths[0] : new URL(env).href, '--max-pages', '5', '--depth', '1', ...imp(), ...au]])
+  if (num('VERIFY_SWEEP', 1)) jobs.push(['sweep', [pf ? origin + pf.paths[0] : new URL(env).href, '--max-pages', String(num('VERIFY_SWEEP_PAGES', 8)), '--depth', String(num('VERIFY_SWEEP_DEPTH', 2)), ...imp(), ...au]])
   if (all.length > cap) say(`#${i.number}   the issue lists ${all.length} pages, re-running the first ${cap} (VERIFY_MAX_PAGES); the rest is not covered`)
   let bad = 0, done = 0, next = 0
   const one = ([name, args]) => new Promise((resolve) => {

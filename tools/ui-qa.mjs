@@ -426,9 +426,9 @@ async function impeccable(url, path) {
 const browser = await chromium.launch({ headless: !has('headed') }).catch((e) => die(1, `cannot start chromium: ${e.message.split('\n')[0]}. Try: npx playwright install chromium`))
 const clean = (u) => { const x = new URL(u); x.hash = ''; return x.href }
 const queue = [{ url: clean(root.href), d: 0 }], seen = new Set([queue[0].url])
-for (const [i, v] of argv.entries()) { // --seed <url|path>: extra pages to test as they are (not crawled further), same origin only
+for (const [i, v] of argv.entries()) { // --seed <url|path>: extra pages to test, same origin only. As they are (not crawled further) unless --expand-seeds: then each seed is crawled to --depth like the first URL (admin -> admin/users -> admin/design-system ...)
   if (v !== '--seed' || !argv[i + 1]) continue
-  try { const u = clean(new URL(argv[i + 1], root.origin).href); if (sameOrigin(u) && !seen.has(u)) { seen.add(u); queue.push({ url: u, d: DEPTH }) } } catch {}
+  try { const u = clean(new URL(argv[i + 1], root.origin).href); if (sameOrigin(u) && !seen.has(u)) { seen.add(u); queue.push({ url: u, d: has('expand-seeds') ? 0 : DEPTH }) } } catch {}
 }
 while (queue.length && stats.pages < MAX_PAGES) {
   const { url, d } = queue.shift(), path = short(url); stats.pages++
@@ -450,8 +450,9 @@ while (queue.length && stats.pages < MAX_PAGES) {
       if (light && vp.n === 'desktop') {
         anims = a
         if (d < DEPTH) {
-          const hrefs = await c.page.evaluate(() => [...document.querySelectorAll('a[href]')].map((x) => x.href)).catch(() => [])
-          for (const h of hrefs) { try { const u = new URL(h); if (u.origin === root.origin && !/\.(pdf|zip|png|jpe?g|gif|svg|webp|mp4|ico|css|js)$/i.test(u.pathname) && !(safe && /log.?out|sign.?out|delete/i.test(u.pathname)) && !seen.has(clean(h))) { seen.add(clean(h)); queue.push({ url: clean(h), d: d + 1 }) } } catch {} }
+          const hrefs = await c.page.evaluate(() => [...document.querySelectorAll('a[href]')].map((x) => x.href)).catch(() => []), kids = []
+          for (const h of hrefs) { try { const u = new URL(h); if (u.origin === root.origin && !/\.(pdf|zip|png|jpe?g|gif|svg|webp|mp4|ico|css|js)$/i.test(u.pathname) && !(safe && /log.?out|sign.?out|delete/i.test(u.pathname)) && !seen.has(clean(h))) { seen.add(clean(h)); (u.pathname.startsWith(new URL(url).pathname.replace(/\/$/, '') + '/') ? kids : queue).push({ url: clean(h), d: d + 1 }) } } catch {} }
+          queue.unshift(...kids) // pages under this one (admin -> admin/users) are tested before unrelated links, so a page limit never cuts a section off
         }
       }
       if (light && (vp.n === 'desktop' || vp.n === 'mobile')) await interact(c, path, url)
