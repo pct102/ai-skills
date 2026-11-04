@@ -434,6 +434,25 @@ async function fix() {
   }
 }
 
+// Boxed evidence for a hand-filed issue, made by the script and not left to the agent: every `selector` an Impeccable paste names ("**Low contrast text** at `td > span`") is boxed red on its page
+// (page-level findings have no element to box). The login is the profile of that origin whose pages cover the path (devadmin for /vi/admin). Returns the folder, or '' when nothing was boxed.
+function markReport(R, i) {
+  const body = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body || '', byUrl = new Map(), parts = body.split(/URL:\s*(https?:\/\/[^\s<>]+)/)
+  for (let k = 1; k < parts.length; k += 2) { const u = parts[k].replace(/[).,]+$/, ''), cur = byUrl.get(u) || new Map(); for (const m of parts[k + 1].matchAll(/\*\*([^*\n]+)\*\* at `([^`\n]+)`/g)) cur.set(m[2], m[1]); byUrl.set(u, cur) }
+  const dir = join(ROOT, '.sdlc', 'qa-review', `issue-${i.number}`); let made = 0
+  for (const [u, sels] of byUrl) {
+    if (!sels.size) continue
+    const url = new URL(u), pfs = list('QA_PROFILES').map(profile).filter((p) => p?.base && new URL(p.base).origin === url.origin && existsSync(p.auth))
+    const pf = pfs.find((p) => p.paths.some((x) => url.pathname === x || url.pathname.startsWith(x + '/'))) || pfs[0]
+    const png = join(dir, `marked-${(url.pathname.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home')}.png`); mkdirSync(dir, { recursive: true })
+    const items = [...sels].map(([sel, label]) => ({ sel, color: 'red', label }))
+    const r = run('node', [setting('UI_QA_BIN') || join(HERE, 'ui-qa.mjs'), u, '--allow-remote', ...(pf ? ['--auth', pf.auth, '--profile', pf.name] : []), '--out', join(dir, 'mark-tmp'), '--mark', JSON.stringify(items), '--mark-out', png], { timeout: 120000 })
+    if (existsSync(png)) made++; else say(`#${i.number}   no box drawn on ${u}: ${((r.stdout || '') + (r.stderr || '')).trim().split('\n').pop().slice(0, 160)}`)
+  }
+  rmSync(join(dir, 'mark-tmp'), { recursive: true, force: true })
+  if (made) say(`#${i.number}   boxed the listed elements on ${made} page(s) in ${dir.replace(ROOT + '/', '')}/`)
+  return made ? dir : ''
+}
 // Issues a person filed by hand (no ui-qa label): reproduce, complete (steps, expected, pages), retitle, label qa-reviewed + auto-fix so fix picks them up.
 async function review() {
   agentCmd()
@@ -444,8 +463,9 @@ async function review() {
   say(`review queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur(est('review') * todo.length)}`)
   for (const i of todo) {
     begin(i.number, ['review']); say(`#${i.number} ${i.title}`)
+    const mk = markReport(R, i)
     await step('review', async () => {
-      const r = await agent(ROOT, `Use the pct102-qa-review skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions. If you cannot decide or test it, comment why and add the needs-info label (or needs-human for a decision).`, `review-${i.number}`, `#${i.number}`, { lane: `i${i.number}rv`, min: num('REVIEW_TIMEOUT_MIN', 20), what: 'review agent' })
+      const r = await agent(ROOT, `Use the pct102-qa-review skill on ${issueUrl(R, i.number)}. This is an unattended run: never ask questions.${mk ? ` The script already boxed the elements the issue names, in red, on each page: ${mk.replace(ROOT + '/', '')}/marked-*.png. Attach those first (--image), up to 4 per comment (several comments if there are more pages), and say for each page which listed elements it shows; do not redo the boxing.` : ''} If you cannot decide or test it, comment why and add the needs-info label (or needs-human for a decision).`, `review-${i.number}`, `#${i.number}`, { lane: `i${i.number}rv`, min: num('REVIEW_TIMEOUT_MIN', 20), what: 'review agent' })
       const L = (issues(R, 'qa-reviewed').concat(issues(R, 'needs-info'), issues(R, 'needs-human')).find((x) => x.number === i.number) || {}).labels || []
       cl.st.review.note = `model ${r.model || '?'}, ${L.includes('qa-reviewed') ? 'reproduced and completed, handed to devfix' : L.includes('needs-info') ? 'needs more info (see its comment)' : L.includes('needs-human') ? 'needs a decision (see its comment)' : 'no result'}`
       if (!L.length) { tag(R, i.number, 'needs-human'); note(R, i.number, 'The automatic QA review did not reach a result. A person needs to look at it.'); return false }
