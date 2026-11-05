@@ -22,6 +22,7 @@
 #      (next model when one hits its usage limit; exit 76 when all are exhausted).
 #      OC_TIMEOUT    seconds per call (default 1800). On expiry the call returns rc=124 with the partial
 #                    reply and keeps the session, so the leader can send "continue".
+#      OC_FIRST_STALL seconds with no output at all before the call counts as a silent model and the next one in the chain runs (default 180, model rests OC_SILENT_HOURS=0.15 h).
 #      OC_STALL      seconds with no new output before the call is treated as stalled (default 600, 0 = off).
 #                    A tool call logs only when it finishes, so keep this above your slowest test run.
 #      OC_AUTO       (also settable in autopilot.env) 1 (default) passes --auto so headless runs never block on a permission prompt;
@@ -185,7 +186,7 @@ else
   opencode "${args[@]}" "$ptxt" >"$raw" 2>"$dir/$role.err" &
 fi
 pid=$!
-rm -f "$dir/$role-$n.timedout" "$dir/$role-$n.stalled" "$dir/$role-$n.limited"
+rm -f "$dir/$role-$n.timedout" "$dir/$role-$n.stalled" "$dir/$role-$n.limited" "$dir/$role-$n.silent"
 # The watchdog polls once a second instead of sleeping for the whole limit: a long `sleep` left behind when the
 # call ends would keep this script's stdout open, and anything waiting for it to close (a $(...), a tool call)
 # would hang for up to OC_TIMEOUT.
@@ -196,12 +197,21 @@ rm -f "$dir/$role-$n.timedout" "$dir/$role-$n.stalled" "$dir/$role-$n.limited"
     size=$(wc -c < "$raw" 2>/dev/null || echo 0)
     if [ "$size" = "$last" ]; then idle=$((idle + 1)); else idle=0; last=$size; fi
     [ $((i % 5)) -eq 0 ] && limit_hit && { : > "$dir/$role-$n.limited"; kill "$pid" 2>/dev/null; break; }
+    # A healthy call writes its first event within seconds. Nothing at all for OC_FIRST_STALL s (no error text either: opencode retrying a 429 silently, or a provider that hangs) means this model is not answering: move on.
+    if [ "$((size + 0))" -eq 0 ] && [ "$idle" -ge "${OC_FIRST_STALL:-180}" ]; then : > "$dir/$role-$n.silent"; kill "$pid" 2>/dev/null; break; fi
     if [ "$stall" -gt 0 ] && [ "$idle" -ge "$stall" ]; then : > "$dir/$role-$n.stalled"; kill "$pid" 2>/dev/null; break; fi
   done ) &
 wd=$!
 wait "$pid"; rc=$?
 kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   lease_release
+  if [ -f "$dir/$role-$n.silent" ]; then
+    rm -f "$dir/$role-$n.silent"
+    echo "$model $(date +%s) ${OC_SILENT_HOURS:-0.15}" >> "$exhausted_file"
+    echo "[$actor] $model gave no output for ${OC_FIRST_STALL:-180}s, trying the next model in the chain" >&2
+    trace_log --from "$actor" --to leader --kind note --note "$model silent; falling back" || true
+    : > "$raw"; continue
+  fi
   # opencode exits 0 after retrying a 429 for ~75 s and leaves only an error event, so rc alone proves nothing: a call
   # that ended on a limit error and wrote no reply text counts as limited too.
   if [ -f "$dir/$role-$n.limited" ] || { limit_hit && { [ "$rc" != 0 ] || ! grep -q '"type":"text"' "$raw" 2>/dev/null; }; }; then

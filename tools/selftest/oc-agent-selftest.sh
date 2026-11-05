@@ -128,6 +128,7 @@ cat > "$T/bin2/opencode" <<'FAKE'
 [ "$1" = export ] && exit 1
 m=""; while [ $# -gt 0 ]; do [ "$1" = -m ] && m=$2; shift; done
 echo "$m" >> "$MODELLOG"
+if [ "$m" = "$BAD_MODEL" ] && [ -n "${BAD_HANG:-}" ]; then sleep 30; exit 0; fi   # silent: no output, no error, no exit
 if [ "$m" = "$BAD_MODEL" ] && [ -n "${BAD_EXIT0:-}" ]; then   # what opencode really does: retries, then exits 0 with only an error event
   echo '{"type":"error","sessionID":"s","error":{"name":"APIError","data":{"message":"Upstream request failed: Rate limit exceeded.","statusCode":429}}}'; exit 0; fi
 if [ "$m" = "$BAD_MODEL" ]; then echo "429 Too Many Requests" >&2; exit 1; fi
@@ -154,6 +155,10 @@ PATH="$T/bin2:$PATH" bash "$OC" builder chainexit0 "$T/p/prompt.md" > "$T/exit0.
 check "a 429 that opencode reports with exit 0 and no reply text still falls through to the next model" "0 m1 m2 ok" "$rc $(xargs < "$MODELLOG") $(cat "$T/exit0.out")"
 echo "m1 $(date +%s) 0.15" >> .sdlc/features/chainexit0/.oc/exhausted-models
 check "a repeated 429 doubles the rest (0.15 h -> 0.3 h)" "0.3" "$(awk -v m=m1 -v now="$(date +%s)" -v base=0.15 -v cap=6 '$1==m && now-$2 < 7200 {n++} END{h=base*(2^n); print (h>cap?cap:h)}' .sdlc/features/chainexit0/.oc/exhausted-models | head -1)"
+rm -f "$MODELLOG"; export BAD_MODEL=m1 BUILDER_MODEL="m1,m2" BAD_HANG=1 OC_FIRST_STALL=3
+PATH="$T/bin2:$PATH" bash "$OC" builder chainhang "$T/p/prompt.md" > "$T/hang.out" 2>/dev/null; rc=$?
+check "a model that stays completely silent is skipped after OC_FIRST_STALL and the next one answers" "0 m1 m2 ok" "$rc $(xargs < "$MODELLOG") $(cat "$T/hang.out")"
+unset BAD_HANG OC_FIRST_STALL
 unset BAD_MODEL BUILDER_MODEL BAD_EXIT0
 rm -f "$MODELLOG"; unset BUILDER_MODEL
 VISUAL_MODEL=vis1,vis2 PATH="$T/bin2:$PATH" bash "$OC" visual vfeat "$T/p/prompt.md" >/dev/null 2>&1; rc=$?
