@@ -291,11 +291,16 @@ async function rerunQa(R, i, env) {
   const ibody = ghJson(['issue', 'view', String(i.number), '--repo', R, '--json', 'body']).body || ''
   const probs = ibody.split(/^#{3,4} \d+\. /m).slice(1).map((t) => { const head = t.split('\n')[0]; return { title: head.replace(/\s*\((high|medium|low)\)\s*$/, ''), low: /\(low\)\s*$/.test(head), sels: [...new Set([...t.matchAll(/`([^`\n]*(?:[.#\[>:]|^header|^button)[^`\n]*)`/g)].map((m) => m[1].trim()).filter((x) => /^[a-z*.#\[][^\s]*(\s|$)/i.test(x) && !/\.(tsx?|jsx?|css|mjs)\b|\//.test(x) && !/^\d/.test(x)).concat([...t.matchAll(/\[([^\[\]\n]+)\]/g)].map((m) => m[1]).filter((x) => !/=/.test(x))))] } }).filter((q) => q.sels.length)
   const wl = (ibody.match(/(\d{3,4}(?:\s*,\s*\d{3,4})*)\s*px\s*viewport/i)?.[1] || '').split(/\s*,\s*/).map(Number).filter((w) => w >= 320 && w <= 1920).slice(0, 3)
-  if (probs.length) for (const pg of pages) {
+  // Impeccable paste (hand-filed or qareview): "URL: <page>" then "- **Rule name** at `selector`: ..." with no numbered headings. Per page, one problem per rule name; findings of the rerun are titled "Rule name (id)".
+  const impParts = ibody.split(/URL:\s*(https?:\/\/[^\s<>]+)/), impBy = new Map()
+  for (let k = 1; k < impParts.length; k += 2) { const u = new URL(impParts[k].replace(/[).,]+$/, '')).pathname, cur = impBy.get(u) || new Map(); for (const m of impParts[k + 1].matchAll(/\*\*([^*\n]+)\*\* at `([^`\n]+)`/g)) cur.set(m[1], [...(cur.get(m[1]) || []), m[2]]); impBy.set(u, cur) }
+  const probsOf = (pg) => probs.length ? probs : [...(impBy.get(pg) || [])].map(([title, sels]) => ({ title, low: false, imp: true, sels: [...new Set(sels)] }))
+  for (const pg of pages) {
+    const probs = probsOf(pg); if (!probs.length) continue
     const slugp = pg.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'home'
     const fj = join(dir, `run-${slugp}`, 'findings.json'); let now = []; try { now = JSON.parse(readFileSync(fj, 'utf8')); now = Array.isArray(now) ? now : now.findings || [] } catch { continue }
     // green only when the finding is really gone: match by title when the issue was filed by ui-qa; a renamed (qareview) title falls back to the selector alone, so a mismatch never paints a live defect green
-    const items = probs.flatMap((q) => { const known = now.some((f) => f.title === q.title); return [...new Set(q.sels)].map((sel) => { const still = now.some((f) => (!known || f.title === q.title) && (f.sels || []).includes(sel)); return { sel, color: still ? (q.low ? 'yellow' : 'red') : 'green', label: `${still ? 'STILL WRONG' : 'FIXED'}: ${q.title}` } }) })
+    const items = probs.flatMap((q) => { const same = (f) => f.title === q.title || (q.imp && f.title.startsWith(q.title + ' (')), known = now.some(same); return [...new Set(q.sels)].map((sel) => { const still = now.some((f) => ((!known && !q.imp) || same(f)) && (f.sels || []).includes(sel)); return { sel, color: still ? (q.low ? 'yellow' : 'red') : 'green', label: `${still ? 'STILL WRONG' : 'FIXED'}: ${q.title}` } }) })
     for (const w of wl.length ? wl : [0]) run('node', [setting('UI_QA_BIN') || join(HERE, 'ui-qa.mjs'), origin + pg, '--allow-remote', ...au, '--out', join(dir, 'mark-tmp'), '--mark', JSON.stringify(items), ...(w ? ['--width', String(w)] : []), '--mark-out', join(dir, `marked-${slugp}${w ? `-${w}` : ''}.png`)])
   }
   rmSync(join(dir, 'mark-tmp'), { recursive: true, force: true })
