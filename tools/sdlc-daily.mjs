@@ -2,11 +2,12 @@
 // The QA loop for one project, run by hand like autopilot: each stage works through its queue, then stops and writes a report.
 // Run from the project root (the project's .sdlc/autopilot.env is read).
 //   sdlc-daily.mjs check [--dry-run]   ui-qa over QA_ENV_URL (+ QA_URLS): files NEW issues (labels ui-qa, auto-fix), with screenshots
-//   sdlc-daily.mjs review         open issues a person filed by hand (no ui-qa label): pct102-qa-review reproduces them, adds steps/expected/pages,
+//   sdlc-daily.mjs review [issue] open UNLABELED issues a person filed by hand (no ui-qa label): pct102-qa-review reproduces them, adds steps/expected/pages,
 //                                 retitles, labels qa-reviewed + auto-fix (or needs-info), so fix picks them up
 //   sdlc-daily.mjs fix [--no-verify]  open auto-fix issues, oldest first, ONE AT A TIME: pct102-dev-fix (PR into PR_BASE) -> merge gate (an agent
 //                                 resolves conflicts with PR_BASE) -> wait for the dev deploy -> pct102-qa-verify -> next issue
-//   sdlc-daily.mjs verify         each ready-for-test issue whose fix is merged and deployed: an agent runs pct102-qa-verify --close
+//   (review, fix, verify take an optional issue number or URL: only that issue, whatever its labels)
+//   sdlc-daily.mjs verify [issue] each ready-for-test issue whose fix is merged and deployed: an agent runs pct102-qa-verify --close
 //   sdlc-daily.mjs merge <pr>     the merge gate alone
 // Stages follow issue labels, so they can be rerun safely. Only scripts run here; tokens are spent inside the agent (AGENT_CMD) that
 // fix and verify launch once per issue. Each run writes .sdlc/daily/<stage>-<date>-<time>.md: what was filed, fixed or verified, with
@@ -22,6 +23,9 @@ import { impact } from './lib/impact.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = process.cwd(), SELF = join(HERE, 'sdlc-daily.mjs')
 const [cmd, arg] = process.argv.slice(2)
+// Optional issue number or URL after the stage (review 123 | fix https://github.com/o/r/issues/123 | verify 123): only that issue is worked on, whatever its labels. No issue = the whole queue.
+const ONLY = process.argv.slice(3).map((a) => (a.match(/^#?(\d+)$/) || a.match(/\/issues\/(\d+)/) || [])[1]).find(Boolean)
+const onlyIssue = (R) => { const i = ghJson(['issue', 'view', ONLY, '--repo', R, '--json', 'number,title,labels,state']); return i.state === 'OPEN' ? [{ ...i, labels: i.labels.map((l) => l.name) }] : (say(`#${ONLY} is ${i.state}, nothing to do`), []) }
 const die = (code, msg) => { console.error(`sdlc-daily: ${msg}`); process.exit(code) }
 const run = (c, a, o = {}) => spawnSync(c, a, { encoding: 'utf8', cwd: ROOT, ...o })
 const num = (k, d) => (setting(k) === '' ? d : +setting(k)) // 0 is a real value
@@ -440,7 +444,7 @@ const rank = (i) => (setting('DEVFIX_ORDER') === 'oldest' ? 0 : i.labels.include
 async function fix() {
   agentCmd()
   const R = repo(), skipL = ['ready-for-test', 'needs-human', 'verified'], maxTry = num('MAX_FIX_ATTEMPTS', 2), env = process.argv.includes('--no-verify') ? '' : setting('QA_ENV_URL')
-  const todo = issues(R, 'auto-fix').filter((i) => !i.labels.some((l) => skipL.includes(l))).sort((a, b) => rank(a) - rank(b) || a.number - b.number).slice(0, num('MAX_DEV_ISSUES', 5))
+  const todo = ONLY ? onlyIssue(R) : issues(R, 'auto-fix').filter((i) => !i.labels.some((l) => skipL.includes(l))).sort((a, b) => rank(a) - rank(b) || a.number - b.number).slice(0, num('MAX_DEV_ISSUES', 5))
   if (!todo.length) return say('no open auto-fix issues waiting for a fix')
   const keys = env ? ['reuse', 'fix', 'gate', 'deploy', 'rerun', 'verdict'] : ['reuse', 'fix', 'gate'], per = keys.reduce((a, k) => a + est(k), 0)
   say(`queue: ${todo.map((i) => '#' + i.number).join(' → ')} · ${setting('DEVFIX_ORDER') === 'oldest' ? 'oldest first' : 'lowest priority first (smallest impact), then oldest'}, one at a time${env ? ', each verified before the next' : ' (no verify: --no-verify, or QA_ENV_URL is not set)'} · about ${dur(per * todo.length)} if every issue needs a fix`)
@@ -473,8 +477,9 @@ function markReport(R, i) {
 // Issues a person filed by hand (no ui-qa label): reproduce, complete (steps, expected, pages), retitle, label qa-reviewed + auto-fix so fix picks them up.
 async function review() {
   agentCmd()
-  const R = repo(), skipL = ['ui-qa', 'qa-reviewed', 'needs-info', 'needs-human', 'auto-fix', 'duplicate', 'wontfix'], cap = num('MAX_REVIEW_ISSUES', 5)
-  const todo = ghJson(['issue', 'list', '--repo', R, '--state', 'open', '--json', 'number,title,labels', '--limit', '100']).filter((i) => !i.labels.some((l) => skipL.includes(l.name))).map((i) => ({ ...i, labels: i.labels.map((l) => l.name) })).sort((a, b) => a.number - b.number).slice(0, cap)
+  // Only issues with NO label at all are reviewed: anything labeled (enhancement, feature, ui-qa, qa-reviewed, needs-*, ...) is somebody's own to define. Naming an issue (review 123) overrides that.
+  const R = repo(), cap = num('MAX_REVIEW_ISSUES', 5)
+  const todo = ONLY ? onlyIssue(R) : ghJson(['issue', 'list', '--repo', R, '--state', 'open', '--json', 'number,title,labels', '--limit', '100']).filter((i) => !i.labels.length).map((i) => ({ ...i, labels: [] })).sort((a, b) => a.number - b.number).slice(0, cap)
   if (!todo.length) return say('no hand-filed issues waiting for a QA review')
   for (const name of list('QA_PROFILES')) { const pf = profile(name); if (pf?.base && !isLocalUrl(pf.base)) { const lg = freshLogin(pf); if (lg) say(`profile ${name}: could not renew the login: ${lg}`) } }
   say(`review queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur(est('review') * todo.length)}`)
@@ -495,7 +500,7 @@ async function review() {
 async function verify() {
   agentCmd()
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
-  const R = repo(), todo = issues(R, 'ready-for-test').sort((a, b) => a.number - b.number)
+  const R = repo(), todo = ONLY ? onlyIssue(R) : issues(R, 'ready-for-test').sort((a, b) => a.number - b.number)
   if (!todo.length) return say('no ready-for-test issues')
   const deploy = ghOut(['api', `repos/${R}/commits/${BASE}/status`, '--jq', '.state']).trim()
   say(`verify queue: ${todo.map((i) => '#' + i.number).join(' → ')} · about ${dur((est('rerun') + est('verdict')) * todo.length)}`)
@@ -516,7 +521,7 @@ async function verify() {
   }
 }
 
-if (!['check', 'fix', 'verify', 'review', 'merge'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs check | review | fix | verify | merge <pr>')
+if (!['check', 'fix', 'verify', 'review', 'merge'].includes(cmd)) die(3, 'usage: sdlc-daily.mjs check | review [issue] | fix [issue] | verify [issue] | merge <pr>')
 if (cmd === 'merge') { if (!/^\d+$/.test(arg || '')) die(3, 'merge <pr number>'); process.exit((await merge(repo(), +arg, 0)) ? 0 : 1) }
 
 // one run of the loop per project at a time (a long stage must not overlap the next trigger)
