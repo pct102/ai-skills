@@ -168,6 +168,8 @@ On `124`, `125`, or any non-zero exit:
 ### 1. Spec by dialogue (max 3 rounds)
 
 1. Inspect the repo; write a draft `spec.md` (outcome, users, flows, edge cases, non-goals).
+   `<f>` is date-prefixed by `autopilot.sh` (`YYYY-MM-DD-<topic>`), so `.sdlc/features/` sorts by when the work started; use the name you were given, never invent another. The feature directory is the project's single record of the work: spec, plan, contract, evidence and trace all live there, so do not write specs or plans anywhere else (for example `docs/`).
+   **Project spec rules win.** If the repo's `AGENTS.md`/`CLAUDE.md` defines rules for specs and plans (MUGA: an Evidence table of commands and their output, a `## New in this spec` list, placeholders banned in `plan.md`, `npm run spec:verify <path>`), read them first and make `spec.md` and `plan.md` satisfy them, then run the project's verifier on both before the first builder call. A spec that asserts a fact about the codebase without the command that showed it is not done.
 2. Send the draft to the builder: ask for gaps, risks, edge cases, and a file-level design.
    The builder keeps its session, so later calls need not repeat context.
 3. Resolve each point per the question policy. Stop when a round yields no new blocking point.

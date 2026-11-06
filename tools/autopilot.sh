@@ -53,6 +53,8 @@ else
   feat=$(printf %s "$req" | tr A-Z a-z | tr -cs a-z0-9 - | sed 's/^-//;s/-$//')
   [ ${#feat} -gt 44 ] && feat=$(printf %s "${feat:0:44}" | sed 's/-[^-]*$//')   # cut at a word boundary
   feat=${feat:-feature-$(date +%H%M%S)}
+  # Date prefix (local time) so .sdlc/features/ sorts by when the work started; AUTOPILOT_DATE_PREFIX=0 turns it off.
+  [ "${AUTOPILOT_DATE_PREFIX:-1}" = 1 ] && feat=$(date +%F)-$feat
 fi
 port=$(node -e 's=require("net").createServer().listen(0,()=>{console.log(s.address().port);s.close()})')
 url=http://127.0.0.1:$port

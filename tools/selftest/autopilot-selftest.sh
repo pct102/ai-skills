@@ -10,6 +10,7 @@
 #
 # Run from the repository root:  bash tools/selftest/autopilot-selftest.sh
 set -uo pipefail
+export AUTOPILOT_DATE_PREFIX=0   # the checks below name features without the date; one check at the end of the naming block covers the default
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AP="$(cd "$HERE/../.." && pwd)/tools/autopilot.sh"
@@ -166,6 +167,8 @@ name="$(grep -o 'feature name: [a-z0-9-]*' "$T/f/calls.log" | head -1 | sed 's/f
 check "the real request that was cut as ...-index-ht now ends on ...-index-html" "update-the-existing-match-pairs-index-html" "$name"
 run g PHASE=accepted bash "$AP" "Make a thing"
 check "a short request is kept whole" "make-a-thing" "$(grep -o 'feature name: [a-z0-9-]*' "$T/g/calls.log" | head -1 | sed 's/feature name: //')"
+run g2 PHASE=accepted env -u AUTOPILOT_DATE_PREFIX bash "$AP" "Make a thing"
+check "by default the name starts with today's local date" "$(date +%F)-make-a-thing" "$(grep -o 'feature name: [a-z0-9-]*' "$T/g2/calls.log" | head -1 | sed 's/feature name: //')"
 
 # Claude stopped early: a fresh Claude resumes from disk, a bounded number of times
 run h PHASES=building,accepted bash "$AP" --no-diagrams "Make a thing"

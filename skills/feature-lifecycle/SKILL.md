@@ -23,7 +23,7 @@ All feature evidence is written to `.sdlc/features/<feature-name>/evidence.md`. 
 
 ### 1. Feature contract
 
-Create or update:
+Create or update (`<feature-name>` is `YYYY-MM-DD-<topic>`, date from `date +%F` in local time, the same prefix `autopilot` adds; a project's own spec rules in `AGENTS.md`/`CLAUDE.md` apply to `spec.md` and `plan.md`):
 
 ```text
 .sdlc/features/<feature-name>/spec.md
