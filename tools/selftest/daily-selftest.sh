@@ -128,6 +128,15 @@ echo '[]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
 node "$SD" verify >/dev/null 2>&1;                                  check "qa: no PR at all (agent found it already fixed on dev) -> verified against dev" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
 echo '[{"number":9,"headRefName":"fix/issue-5-x","body":"","title":"fix(#5)"}]' > "$GH_FX/pr-merged.json"; : > "$T/agent.log"
 node "$SD" verify >/dev/null 2>&1;                                  check "qa: merged and deployed -> one agent run with --env and --close" "1" "$(grep -c 'pct102-qa-verify skill on https://github.com/o/r/issues/5 --env https://dev.example.app/vi --close' "$T/agent.log")"
+# a feature/enhancement issue gets feature-only evidence rules and may not trigger the fix agent for a naming detail; a bug issue keeps the old text
+echo '{"labels":[{"name":"enhancement"}],"state":"OPEN","body":"## Xong khi\n- hinh that"}' > "$GH_FX/issueview.json"
+echo '[{"number":5,"title":"t5","labels":[{"name":"enhancement"},{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"; : > "$T/agent.log"
+node "$SD" verify >/dev/null 2>&1
+check "feature issue: the agent gets the FEATURE ISSUE evidence rule (no home page, needs-human for a naming detail)" "yes yes" "$(grep -q 'FEATURE ISSUE' "$T/agent.log" && echo yes) $(grep -q 'needs-human (not needs-fix, not verified)' "$T/agent.log" && echo yes)"
+echo '{"labels":[{"name":"ready-for-test"}],"state":"OPEN","body":"**Affected pages:** `/vi/a`"}' > "$GH_FX/issueview.json"
+echo '[{"number":5,"title":"t5","labels":[{"name":"ready-for-test"}]}]' > "$GH_FX/issues-ready-for-test.json"; : > "$T/agent.log"
+node "$SD" verify >/dev/null 2>&1
+check "bug issue: no FEATURE ISSUE text" "0" "$(grep -c 'FEATURE ISSUE' "$T/agent.log")"
 
 check "fix wrote a report file naming the issue" "yes" "$(cat .sdlc/daily/fix-*.md 2>/dev/null | grep -q "#7" && echo yes)"
 
