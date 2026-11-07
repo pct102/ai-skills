@@ -224,16 +224,17 @@ function check() {
   const env = setting('QA_ENV_URL') || die(3, 'QA_ENV_URL is not set in .sdlc/autopilot.env')
   const origin = new URL(env).origin, cap = num('MAX_NEW_ISSUES', 15), out = join(ROOT, '.sdlc', 'qa-check', day)
   const seeds = list('QA_URLS').flatMap((u) => ['--seed', new URL(u, origin).href])
-  const jobs = [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds, ...imp(), ...polish()]] // one run: one set of issues, no same-title drafts
-  for (const name of list('QA_PROFILES')) { // roles tested logged in; each one that cannot run says why instead of silently testing the login page
+  const flag = (n) => { const k = process.argv.indexOf(`--${n}`); return k < 0 ? '' : process.argv[k + 1] || '' }, only = flag('profile').split(',').filter(Boolean) // --profile student1,student3 [--paths "/vi/vietnamese /vi/learn"]: only those roles, no landing crawl
+  const jobs = only.length ? [] : [[env, '--depth', '2', '--max-pages', String(num('QA_SCOUT_MAX_PAGES', 25) + seeds.length / 2), ...seeds, ...imp(), ...polish()]] // one run: one set of issues, no same-title drafts
+  for (const name of list('QA_PROFILES').filter((n) => !only.length || only.includes(n))) { // roles tested logged in; each one that cannot run says why instead of silently testing the login page
     const pf = profile(name)
     if (!pf?.base) { say(`profile ${name}: QA_PROFILE_${name.toUpperCase()}_AUTH or a URL is missing, skipped`); continue }
     const lg = freshLogin(pf); if (lg && !existsSync(pf.auth)) say(`profile ${name}: could not renew the login: ${lg}`)
     if (!existsSync(pf.auth)) { say(`profile ${name}: no saved login at ${pf.auth}, skipped (create it, see autopilot.env.example)`); continue }
     if (!reachable(pf.base)) { say(`profile ${name}: ${pf.base} is not running, skipped (start the app, for example npm run dev)`); continue }
     const bad = isLocalUrl(pf.base) && syncLocal(); if (bad) { say(`profile ${name}: ${bad}, skipped`); continue }
-    const [first, ...rest] = pf.paths
-    jobs.push([pf.base + first, '--depth', String(num('QA_PROFILE_DEPTH', 2)), '--max-pages', String(Math.max(pf.paths.length, num('QA_PROFILE_MAX_PAGES', 15))), '--expand-seeds', ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
+    const paths = flag('paths') ? flag('paths').split(/[\s,]+/).filter(Boolean) : pf.paths, [first, ...rest] = paths
+    jobs.push([pf.base + first, '--depth', String(num('QA_PROFILE_DEPTH', 2)), '--max-pages', String(Math.max(paths.length, num('QA_PROFILE_MAX_PAGES', 15))), '--expand-seeds', ...rest.flatMap((x) => ['--seed', pf.base + x]), '--auth', pf.auth, '--profile', name, ...imp(), ...polish()])
   }
   const R = repo(); for (const l of ['ui-qa', 'auto-fix']) run('gh', ['label', 'create', l, '--repo', R, '--color', 'c5def5']) // exists -> non-zero, fine
   let filed = 0; const newIssues = []
@@ -335,8 +336,10 @@ async function rerunQa(R, i, env) {
   }
   // A feature/enhancement: the project's QA_FEATURE_CMD plays the NEW behaviour itself (the agent's shell is too short, and a weak model skips the script). {url} {auth} {out}; it must write PNGs of the feature into {out} (<issue dir>/feature/).
   // QA_FEATURE_WHEN (a regex on the issue body, unset = every feature issue) picks which features it applies to. The agent is told to attach THESE screenshots and nothing from the home page.
-  const featCmd = setting('QA_FEATURE_CMD'), featWhen = setting('QA_FEATURE_WHEN')
-  if (featCmd && pf && existsSync(pf.auth) && isFeature(lblOf(i), ibody) && (!featWhen || new RegExp(featWhen, 'i').test(ibody))) {
+  // Rules QA_FEATURE_1_WHEN/CMD, QA_FEATURE_2_...: one per subject; the first whose WHEN matches the issue title+labels+body wins (no WHEN = matches all). The unnumbered QA_FEATURE_CMD/WHEN is rule 0.
+  const featRules = [[setting('QA_FEATURE_WHEN'), setting('QA_FEATURE_CMD')], ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [setting(`QA_FEATURE_${n}_WHEN`), setting(`QA_FEATURE_${n}_CMD`)])].filter(([, c]) => c)
+  const featText = `${i.title || ''}\n${lblOf(i).join(' ')}\n${ibody}`, featCmd = featRules.find(([w]) => !w || new RegExp(w, 'i').test(featText))?.[1]
+  if (featCmd && pf && existsSync(pf.auth) && isFeature(lblOf(i), ibody)) {
     const out = join(dir, 'feature'), t = Date.now(); mkdirSync(out, { recursive: true })
     const r = run('sh', ['-c', featCmd.replaceAll('{url}', pf.base).replaceAll('{auth}', pf.auth).replaceAll('{out}', `'${out}'`)], { timeout: num('FEATURE_TIMEOUT_MIN', 12) * 60000, env: { ...process.env, QA_OUT: out } })
     cl.feature = r.status === 0
