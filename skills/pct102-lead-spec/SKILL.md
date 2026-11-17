@@ -9,7 +9,7 @@ The agent that implements runs on a free text-only model. It codes well when eve
 
 ## Input
 
-- An issue URL. The repository's local clone (MUGA: `/Users/phanchitrung/MUGA/muga`) for reading code and running checks.
+- An issue URL. The repository's local clone, for reading code and running checks.
 - Run only on issues the owner labelled `needs-spec`. If the label is missing, ask whether the issue is big enough; a small fix needs no spec.
 
 ## Who decides what (do not let two skills decide one thing)

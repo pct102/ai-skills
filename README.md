@@ -14,11 +14,38 @@ Personal AI software delivery skills.
 - `pct102-dev-fix`: fixes one small GitHub issue from its URL, comments before/after evidence, sets `ready-for-test` (no autopilot)
 - `pct102-qa-verify`: independently verifies a `ready-for-test` issue (on the local app or a deployed env URL), sweeps for sibling defects, sets `verified` or `needs-fix`, and closes it with `--close` when the fix is live
 - `pct102-qa-review` (`qareview`): completes an issue a person filed by hand (not from ui-qa): reproduces it, appends steps / expected / actual / affected pages, retitles it `[QA] <Area>: <problem>`, and labels it `qa-reviewed` + `auto-fix` (so `devfix` takes it) or `needs-info` when it cannot be reproduced
+- `pct102-lesson`: a classroom lesson as one printable HTML (student sheet plus teacher frame), built on Matt Pocock's `teach`, plus an optional interactive HTML slide deck for projecting
+- `pct102-lead-spec`: writes the spec of one big issue (a feature, or one MUGA lesson: real words, confusions, passage, 10–15 generators, cognitive matrix, blind re-solved samples, pictures checked by eye) so a cheap agent can build it; publishes it through a PR into dev and sets `spec-ready`
+- `pct102-exam`: an exam from a blueprint (ma trận đề), with answer key and rubric, gated by `scripts/examcheck.mjs`, exported to Word or PDF
+- `markitdown`: converts PDF, DOCX, PPTX, XLSX, EPUB, HTML, CSV/JSON/XML and more to Markdown so a model without native file reading can understand them; `scripts/mdconvert.sh` batch-converts and flags scanned PDFs that need OCR
 - `morphicons-animate`: makes interactive icons move (hamburger to X, plus to minus, chevron, heart pop, sun to moon, bell swing, arrow nudge) with transform-only CSS driven by `aria-expanded` / `aria-pressed`; reduced-motion safe; stylesheet in `assets/morph.css`
 - `pct102-qa-lead-check` / `pct102-dev-lead-fix` / `pct102-qa-lead-verify`: the three stages of the by-hand QA loop (`tools/sdlc-daily.mjs check|fix|verify`): file grouped issues with screenshots from a crawl of the deployed dev URL, fix each with a fresh agent and gate-merge its PR into dev, verify and close on the deployed env. Each stage writes a markdown report
 
 `tools/` is the part that decides whether work actually passed. See **The machine layer**
 below.
+
+## Which tool for which job
+
+Start here. "Ref" means a file in `references/` (an optional external tool, installed on demand; scan with SkillSpector first).
+
+| I want to... | Use |
+| --- | --- |
+| Build or change a feature, fix a bug | `feature-autopilot`, `feature-lifecycle`, `bug-fix` |
+| Design a new UI (style, colors, fonts) | ui-ux-pro-max (ref), then `pct102-frontend-patterns`, then `impeccable` |
+| Write or review React / Next.js code for speed | `vercel-react-best-practices` |
+| Build a company or marketing site that stands out | taste-skill (ref) |
+| Test a web UI from its URL | `pct102-ui-qa`, `pct102-qa-verify` |
+| Test a native or Electron app by hand | agent-desktop (ref, manual only) |
+| Read a PDF, Word, Excel, slide file | `markitdown` |
+| Research a topic | `research`, plus agent-reach (ref) for YouTube, GitHub, Bilibili |
+| Draw an architecture or flow diagram | `archify` |
+| Explain an idea as an interactive illustration | anatomy (ref) |
+| Write a classroom lesson (printable, with teacher frame) | `pct102-lesson` |
+| Write an exam with matrix, key and rubric | `pct102-exam` |
+| Prepare a big issue for a cheap agent (spec, word list, pictures) | `pct102-lead-spec` |
+| Make an interactive lesson or course | OpenMAIC (ref, runs as a service) |
+| Write social content (Instagram) | instagram-agent-skill (ref) |
+| Find a skill this repo lacks | aitmpl.com (ref) |
 
 ## Install
 
@@ -68,6 +95,15 @@ component that grants acceptance should not be able to fail to install.
 - `tt-a1i/archify`: validated architecture, workflow, sequence, data-flow, and lifecycle diagrams (vendored, MIT, at `skills/archify/`)
 - `garrytan/gstack`: selected product, design, engineering, QA, release, and safety patterns
 - `msitarzewski/agency-agents`: selective specialist role catalog
+- `nextlevelbuilder/ui-ux-pro-max-skill`: design system generation before UI work (`references/ui-ux-pro-max.md`)
+- `vercel-labs/agent-skills` (`react-best-practices`): React and Next.js performance rules, vendored and pinned (`references/vercel-react-best-practices.md`)
+- `Leonxlnx/taste-skill`: distinctive, browser-checked company sites (`references/taste-skill.md`)
+- `Panniantong/Agent-Reach`: optional research sources, login channels off (`references/agent-reach.md`)
+- `wheresryan22/anatomy`: on-request interactive isometric explainers (`references/anatomy.md`)
+- `Jakeschincariol/instagram-agent-skill`: Instagram content skills, no posting (`references/instagram-agent-skill.md`)
+- `davila7/claude-code-templates` (aitmpl.com): discovery catalog, scan before install (`references/aitmpl.md`)
+- `vercel-labs/agent-desktop`: native app control, manual use only (`references/agent-desktop.md`)
+- `THU-MAIC/OpenMAIC`: interactive classroom generator, run as a service (`references/openmaic.md`)
 - Local Jev service (`tools/jev-proxy/`, backed by a free Google AI Studio key): bounded `noul`, `choice`, and `score` routing decisions
 
 ## Safety: autopilot runs unattended
