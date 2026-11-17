@@ -28,6 +28,16 @@ These are reusable capabilities. They are not copied into this repository and mu
 | `architecture-diagrams` | `tt-a1i/archify` | `references/archify.md` | `archify` (vendored at `skills/archify/`, MIT, pinned) | Validated architecture, workflow, sequence, data-flow, and lifecycle diagrams. |
 | `gstack-patterns` | `garrytan/gstack` | `references/gstack-patterns.md` | Selected gstack role skills | Optional product, engineering, design, QA, release, and safety reviews. |
 | `agent-roster` | `msitarzewski/agency-agents` | `references/agency-agents.md` | Selected agency agents | Optional specialist roles selected by Jev. |
+| `design-intelligence` | `nextlevelbuilder/ui-ux-pro-max-skill` | `references/ui-ux-pro-max.md` | `ui-ux-pro-max` | Design system (style, palette, type, pattern) before building a new UI. |
+| `distinctive-web-design` | `Leonxlnx/taste-skill` | `references/taste-skill.md` | `design-taste-frontend` | Company and marketing sites that must stand out; browser-checked. Not for app UI; never armed inside autopilot. |
+| `classroom-teaching` | `mattpocock/skills` (`teach`) | `pct102-lesson` | `teach` (installed at `~/.claude/skills/teach`) | Lesson structure, mission, learning records, glossary; `pct102-lesson` adapts it to a class and adds the teacher frame. |
+| `react-performance` | `vercel-labs/agent-skills` | `references/vercel-react-best-practices.md` | `vercel-react-best-practices` (vendored at `skills/vercel-react-best-practices/`, MIT, pinned) | Performance rules for React and Next.js code. |
+| `web-reach` | `Panniantong/Agent-Reach` | `references/agent-reach.md` | `agent-reach` | Optional research sources: YouTube, GitHub, Bilibili, V2EX. Login channels off by default. |
+| `visual-explainer` | `wheresryan22/anatomy` | `references/anatomy.md` | `anatomy` | On-request interactive isometric explainer figures. Never in autopilot. |
+| `social-content` | `Jakeschincariol/instagram-agent-skill` | `references/instagram-agent-skill.md` | `ig-*` skills | Instagram content, installed only while working on it. Never posts. |
+| `skill-registry` | `davila7/claude-code-templates` (aitmpl.com) | `references/aitmpl.md` | Items chosen one at a time | Discovery of extra skills, agents, MCP servers. Scan before install. |
+| `desktop-control` | `vercel-labs/agent-desktop` | `references/agent-desktop.md` | `agent-desktop` | Manual QA of native apps. Never unattended. |
+| `classroom-generation` | `THU-MAIC/OpenMAIC` | `references/openmaic.md` | `openmaic` (service plus optional skill) | Interactive lessons and course export; runs outside this repo. |
 
 The `pct102-*` adapters and `references/*.md` files provide a stable project-local fallback and routing contract. When a preferred external skill is installed, the adapter delegates to it instead of replacing it.
 

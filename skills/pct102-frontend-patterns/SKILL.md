@@ -32,6 +32,8 @@ Before selecting a component:
 
 Reuse the existing design system before adding a new dependency.
 
+For a new product, page, or retheme with no design system yet, generate one first with `ui-ux-pro-max` if it is installed (`../../references/ui-ux-pro-max.md`) and keep it in the project. Skip this for a small fix to an existing screen.
+
 ### 2. Choose the smallest adequate pattern
 
 Apply this order:

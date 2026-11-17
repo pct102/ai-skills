@@ -22,7 +22,7 @@
 #      (next model when one hits its usage limit; exit 76 when all are exhausted).
 #      OC_TIMEOUT    seconds per call (default 1800). On expiry the call returns rc=124 with the partial
 #                    reply and keeps the session, so the leader can send "continue".
-#      OC_FIRST_STALL seconds with no output at all before the call counts as a silent model and the next one in the chain runs (default 180, model rests OC_SILENT_HOURS=0.15 h).
+#      OC_FIRST_STALL seconds with no output at all before the call counts as a silent model and the next one in the chain runs (default 180, model rests OC_SILENT_HOURS=0.5 h).
 #      OC_STALL      seconds with no new output before the call is treated as stalled (default 600, 0 = off).
 #                    A tool call logs only when it finishes, so keep this above your slowest test run.
 #      OC_AUTO       (also settable in autopilot.env) 1 (default) passes --auto so headless runs never block on a permission prompt;
@@ -135,13 +135,13 @@ is_exhausted() { [ -f "$exhausted_file" ] && awk -v m="$1" -v now="$(date +%s)" 
 # The limit shows up as "Free usage exceeded" (opencode then retries for hours, silently): cut that call short.
 limit_hit() { grep -q -i -E 'free usage exceeded|usage limit|rate.?limit|too many requests|\b429\b|quota exceeded|insufficient (credit|balance)' "$dir/$role.err" 2>/dev/null ||
   grep -i -E '"type":"error"' "$raw" 2>/dev/null | grep -q -i -E 'usage exceeded|usage limit|rate.?limit|too many requests|429|quota|insufficient'; }
-# 429 / "too many requests" is a burst limit: rest that model for OC_COOLDOWN_HOURS (0.15 = 9 min), not the 6 h of a spent quota.
+# 429 / "too many requests" is a burst limit: rest that model for OC_COOLDOWN_HOURS (0.5 = 30 min), not the 6 h of a spent quota.
 limit_hours() {
   if grep -q -i -E 'too many requests|\b429\b' "$dir/$role.err" 2>/dev/null ||
      grep -i -E '"type":"error"' "$raw" 2>/dev/null | grep -q -i -E 'too many requests|429|rate.?limit'; then
     # Each repeat within 2 h doubles the rest: 9, 18, 36 ... min, capped at OC_EXHAUST_HOURS (6 h).
-    awk -v m="$model" -v now="$(date +%s)" -v base="${OC_COOLDOWN_HOURS:-0.15}" -v cap="${OC_EXHAUST_HOURS:-6}" \
-      '$1==m && now-$2 < 7200 {n++} END{h=base*(2^n); print (h>cap?cap:h)}' "$exhausted_file" 2>/dev/null || echo "${OC_COOLDOWN_HOURS:-0.15}"
+    awk -v m="$model" -v now="$(date +%s)" -v base="${OC_COOLDOWN_HOURS:-0.5}" -v cap="${OC_EXHAUST_HOURS:-6}" \
+      '$1==m && now-$2 < 7200 {n++} END{h=base*(2^n); print (h>cap?cap:h)}' "$exhausted_file" 2>/dev/null || echo "${OC_COOLDOWN_HOURS:-0.5}"
   else echo "${OC_EXHAUST_HOURS:-6}"; fi
 }
 # One call per model at a time (OC_MODEL_SLOTS, default 1), across all lanes, features and projects: a lease is a
@@ -207,7 +207,7 @@ kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   lease_release
   if [ -f "$dir/$role-$n.silent" ]; then
     rm -f "$dir/$role-$n.silent"
-    echo "$model $(date +%s) ${OC_SILENT_HOURS:-0.15}" >> "$exhausted_file"
+    echo "$model $(date +%s) ${OC_SILENT_HOURS:-0.5}" >> "$exhausted_file"
     echo "[$actor] $model gave no output for ${OC_FIRST_STALL:-180}s, trying the next model in the chain" >&2
     trace_log --from "$actor" --to leader --kind note --note "$model silent; falling back" || true
     : > "$raw"; continue
